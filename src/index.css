@@ -1,0 +1,28 @@
+@import "tailwindcss";
+
+@theme {
+  --color-book: #9ca3af; /* gray-400 */
+  --color-best: #22c55e; /* green-500 */
+  --color-brilliant: #06b6d4; /* cyan-500 */
+  --color-excellent: #86efac; /* green-300 */
+  --color-good: #bef264; /* lime-300 */
+  --color-inaccuracy: #fbbf24; /* amber-400 */
+  --color-mistake: #f97316; /* orange-500 */
+  --color-blunder: #ef4444; /* red-500 */
+  --color-worst: #991b1b; /* red-800 */
+}
+
+body {
+  @apply bg-zinc-950 text-zinc-100;
+}
+
+/* Make rank numbers (1-8) and file letters (a-h) on the board solid black and bold */
+svg text,
+[class*="notation"],
+g text {
+  fill: #000000 !important;
+  color: #000000 !important;
+  font-weight: 900 !important;
+  font-size: 14px !important;
+  opacity: 1 !important;
+}
