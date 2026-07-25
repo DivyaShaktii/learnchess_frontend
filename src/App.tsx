@@ -221,11 +221,17 @@ function App() {
     const chess = new Chess(fen);
     let move;
 
+    const isPawn = chess.get(sourceSquare as any)?.type === 'p';
+    const isPromotion = isPawn && (targetSquare[1] === '8' || targetSquare[1] === '1');
+    const promotionPiece = isPromotion
+      ? (piece && piece.length >= 2 && ['q', 'r', 'b', 'n'].includes(piece[1].toLowerCase()) ? piece[1].toLowerCase() : 'q')
+      : undefined;
+
     try {
       move = chess.move({
         from: sourceSquare,
         to: targetSquare,
-        promotion: piece && piece.length >= 2 ? piece[1].toLowerCase() : 'q',
+        promotion: promotionPiece,
       });
     } catch {
       return false;
