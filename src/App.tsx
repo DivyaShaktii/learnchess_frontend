@@ -501,20 +501,22 @@ function App() {
   const handleIllegalMove = (reason: 'pinned' | 'not_your_turn' | 'blocked') => {
     if (reason === 'not_your_turn') {
       if (isRobotThinking) {
-        setCoachMessage('Wait — the robot is thinking...');
+        setToastMessage('🤖 Wait — the robot is currently taking its turn.');
       } else if (isThinking) {
-        setCoachMessage('Analysing your last move...');
+        setToastMessage('⏳ Analysing your move...');
       } else {
-        setCoachMessage("It's not your turn yet.");
+        setToastMessage("It's not your turn right now.");
       }
-    } else if (reason === 'pinned') {
+      return;
+    }
+
+    if (reason === 'pinned') {
       setCoachMessage(
         '🔒 That piece is pinned! Moving it would expose your king to check. Choose a different piece.'
       );
     } else {
       setCoachMessage('That square is not a legal move for this piece.');
     }
-    // Flash the coach panel open briefly
     setOverlayVisible(true);
   };
 
