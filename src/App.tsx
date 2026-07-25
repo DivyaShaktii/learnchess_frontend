@@ -125,7 +125,7 @@ function App() {
 
   // oxlint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (!gameId || warningActive) return;
+    if (!gameId || warningActive || isThinking) return;
 
     try {
       const chess = new Chess(fen);
@@ -144,7 +144,7 @@ function App() {
         return () => clearTimeout(timer);
       }
     } catch {}
-  }, [fen, gameMode, playerColor, gameId, warningActive]);
+  }, [fen, gameMode, playerColor, gameId, warningActive, isThinking]);
 
   const handleError = (err: any) => {
     console.error(err);
@@ -306,9 +306,9 @@ function App() {
         }
 
         setBadMoveSquare(null);
-        setFen(nextFen);
+        // Keep isThinking=true — commitAndFinalize's finally block clears it.
+        // This prevents the robot from firing before the player's move is committed.
         setOverlayVisible(true);
-        setIsThinking(false);
         await commitAndFinalize(moveUci);
       } catch (error) {
         console.error('Error in handleMoveAttempt:', error);
@@ -326,8 +326,11 @@ function App() {
       setIsThinking(true);
       const moveUci = pendingMoveUci;
       const targetFen = pendingFen;
+      const preMovefen = previousFenRef.current;
       resetWarningState();
       try {
+        // Play sound now with the original pre-move fen (before setFen updates state)
+        playMoveSoundForUci(preMovefen, moveUci);
         if (targetFen) setFen(targetFen);
         await commitAndFinalize(moveUci);
       } catch (err) {
@@ -356,7 +359,6 @@ function App() {
     if (!gameId) return;
 
     try {
-      playMoveSoundForUci(fen, moveUci);
       const commitRes = await api.commitMove(gameId, moveUci);
       setFen(commitRes.fen);
       previousFenRef.current = commitRes.fen;
@@ -395,11 +397,11 @@ function App() {
     }
   };
 
-  const executeCommit = useCallback(async (moveUci: string) => {
+  const executeCommit = useCallback(async (moveUci: string, preMovefen?: string) => {
     if (!gameId) return;
 
     try {
-      playMoveSoundForUci(fen, moveUci);
+      playMoveSoundForUci(preMovefen ?? fen, moveUci);
       const commitRes = await api.commitMove(gameId, moveUci);
       setFen(commitRes.fen);
       previousFenRef.current = commitRes.fen;
@@ -415,17 +417,18 @@ function App() {
 
     setIsRobotThinking(true);
     try {
+      const currentFen = fen;
       const res = await api.getBestMoves(gameId, 1);
       if (res.moves && res.moves.length > 0) {
         const moveUci = res.moves[0].move;
-        if (moveUci) await executeCommit(moveUci);
+        if (moveUci) await executeCommit(moveUci, currentFen);
       }
     } catch (err) {
       handleError(err);
     } finally {
       setIsRobotThinking(false);
     }
-  }, [executeCommit, gameId]);
+  }, [executeCommit, gameId, fen]);
 
   const handleDismissWarning = () => {
     setFen(previousFenRef.current);
@@ -437,8 +440,9 @@ function App() {
     if (!gameId) return;
 
     setIsThinking(true);
+    const preMovefen = previousFenRef.current;
     try {
-      const chess = new Chess(previousFenRef.current);
+      const chess = new Chess(preMovefen);
       const parsedMove = chess.move(moveUci);
       if (parsedMove) setFen(chess.fen());
     } catch {
@@ -446,7 +450,7 @@ function App() {
     }
 
     resetWarningState();
-    await executeCommit(moveUci);
+    await executeCommit(moveUci, preMovefen);
     setCoachMessage('Playing the suggested move!');
     setIsThinking(false);
   };
