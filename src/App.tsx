@@ -498,6 +498,26 @@ function App() {
     }
   };
 
+  const handleIllegalMove = (reason: 'pinned' | 'not_your_turn' | 'blocked') => {
+    if (reason === 'not_your_turn') {
+      if (isRobotThinking) {
+        setCoachMessage('Wait — the robot is thinking...');
+      } else if (isThinking) {
+        setCoachMessage('Analysing your last move...');
+      } else {
+        setCoachMessage("It's not your turn yet.");
+      }
+    } else if (reason === 'pinned') {
+      setCoachMessage(
+        '🔒 That piece is pinned! Moving it would expose your king to check. Choose a different piece.'
+      );
+    } else {
+      setCoachMessage('That square is not a legal move for this piece.');
+    }
+    // Flash the coach panel open briefly
+    setOverlayVisible(true);
+  };
+
   useEffect(() => {
     if (!warningActive) {
       previousFenRef.current = fen;
@@ -652,16 +672,28 @@ function App() {
               height: 'min(calc(100vh - 44px - 8px), calc(100vw - 380px - 8px))',
             }}
           >
-            {isRobotThinking && (
-              <div className="absolute top-2 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2 rounded-full border border-zinc-700 bg-black/80 px-3 py-1 text-xs text-zinc-400 backdrop-blur">
-                <span className="h-2 w-2 rounded-full bg-cyan-400 animate-ping" />
-                Robot is thinking...
+            {(isRobotThinking || isThinking) && (
+              <div
+                className="absolute top-3 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2.5 rounded-full px-4 py-1.5 text-sm font-semibold shadow-lg"
+                style={{
+                  background: isRobotThinking ? 'rgba(8,145,178,0.92)' : 'rgba(100,100,100,0.85)',
+                  border: isRobotThinking ? '1px solid rgba(34,211,238,0.6)' : '1px solid rgba(180,180,180,0.3)',
+                  color: '#fff',
+                  backdropFilter: 'blur(8px)',
+                }}
+              >
+                <span
+                  className="h-2.5 w-2.5 rounded-full"
+                  style={{ backgroundColor: isRobotThinking ? '#22d3ee' : '#9ca3af', animation: 'ping 1s cubic-bezier(0,0,0.2,1) infinite' }}
+                />
+                {isRobotThinking ? '🤖 Robot is thinking...' : '⏳ Analysing...'}
               </div>
             )}
 
             <ChessBoardArea
               fen={fen}
               onMoveAttempt={handleMoveAttempt}
+              onIllegalMove={handleIllegalMove}
               onPieceSelect={handlePieceSelect}
               orientation={playerColor}
               customArrows={boardArrows}

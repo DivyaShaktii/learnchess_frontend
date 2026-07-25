@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import type { CSSProperties } from 'react';
 import { Chessboard } from 'react-chessboard';
 import { Chess } from 'chess.js';
@@ -6,6 +6,7 @@ import { Chess } from 'chess.js';
 interface ChessBoardAreaProps {
   fen: string;
   onMoveAttempt: (sourceSquare: string, targetSquare: string, piece: string) => boolean;
+  onIllegalMove?: (reason: 'pinned' | 'not_your_turn' | 'blocked') => void;
   onPieceSelect?: (square: string | null) => void;
   orientation?: 'white' | 'black';
   customArrows?: [string, string, string][];
@@ -17,6 +18,7 @@ interface ChessBoardAreaProps {
 export function ChessBoardArea({
   fen,
   onMoveAttempt,
+  onIllegalMove,
   onPieceSelect,
   orientation = 'white',
   customArrows = [],
@@ -25,9 +27,22 @@ export function ChessBoardArea({
   overlay,
 }: ChessBoardAreaProps) {
   const [moveFrom, setMoveFrom] = useState<string | null>(null);
+  // Square that briefly flashes red when an illegal move is attempted
+  const [illegalFlashSquare, setIllegalFlashSquare] = useState<string | null>(null);
+
+  /** Flash a square red for 500ms to signal an illegal move. */
+  const flashIllegal = useCallback((square: string) => {
+    setIllegalFlashSquare(square);
+    setTimeout(() => setIllegalFlashSquare(null), 500);
+  }, []);
 
   const handleSquareClick = (square: string) => {
-    if (!isPlayerTurn) return;
+    if (!isPlayerTurn) {
+      // Robot is thinking — flash the clicked square to signal "wait"
+      flashIllegal(square);
+      onIllegalMove?.('not_your_turn');
+      return;
+    }
 
     const chess = new Chess(fen);
     const currentTurn = chess.turn();
@@ -49,8 +64,25 @@ export function ChessBoardArea({
 
     const targetPiece = chess.get(square as any);
     if (targetPiece && targetPiece.color === currentTurn) {
+      // Clicked own piece — re-select it
       setMoveFrom(square);
       onPieceSelect?.(square);
+      return;
+    }
+
+    // Check if this square is actually a legal destination for the selected piece.
+    // If not, flash it red and show a hint — the piece is probably pinned.
+    const legalDests = chess
+      .moves({ square: moveFrom as any, verbose: true })
+      .map((m: any) => m.to);
+
+    if (!legalDests.includes(square)) {
+      flashIllegal(square);
+      // Determine reason: if the square has an opponent piece it looks like a
+      // capture attempt, so the piece is pinned. Otherwise it's just blocked.
+      const reason = targetPiece ? 'pinned' : 'blocked';
+      onIllegalMove?.(reason);
+      // Keep moveFrom selected so the player can choose a different target
       return;
     }
 
@@ -104,13 +136,22 @@ export function ChessBoardArea({
       };
     }
 
+    // Illegal-move flash: briefly highlight the target square in orange-red
+    if (illegalFlashSquare) {
+      styles[illegalFlashSquare] = {
+        backgroundColor: 'rgba(251, 146, 60, 0.75)',
+        boxShadow: 'inset 0 0 0 3px rgba(234, 88, 12, 1)',
+        borderRadius: '4px',
+        transition: 'background-color 0.15s ease',
+      };
+    }
+
     return styles;
-  }, [moveFrom, fen, badMoveSquare]);
+  }, [moveFrom, fen, badMoveSquare, illegalFlashSquare]);
 
   // Original dark/light gray squares
   const darkSquareStyle = useMemo(() => ({ backgroundColor: '#4a4a4a' }), []);
   const lightSquareStyle = useMemo(() => ({ backgroundColor: '#8a8a8a' }), []);
-
 
   const customNotationStyle = useMemo<Record<string, string | number>>(() => ({
     color: 'rgba(0,0,0,0.45)',
