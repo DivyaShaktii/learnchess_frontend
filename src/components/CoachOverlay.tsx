@@ -124,9 +124,10 @@ export function CoachOverlay({
 
   const tipText = isThinking
     ? 'Please wait...'
-    : isOpening
-    ? 'Watch your moves'
-    : coachMessage || 'Check what your opponent is threatening before you commit.';
+    : coachMessage ||
+      (isOpening && isBadMove
+        ? 'Watch your move — try building your center first.'
+        : 'Check what your opponent is threatening before you commit.');
 
   const currentClue = puzzleClues[Math.max(0, Math.min(hintStep, puzzleClues.length - 1))];
 

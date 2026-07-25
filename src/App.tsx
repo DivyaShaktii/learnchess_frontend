@@ -221,17 +221,11 @@ function App() {
     const chess = new Chess(fen);
     let move;
 
-    const isPawn = chess.get(sourceSquare as any)?.type === 'p';
-    const isPromotion = isPawn && (targetSquare[1] === '8' || targetSquare[1] === '1');
-    const promotionPiece = isPromotion
-      ? (piece && piece.length >= 2 && ['q', 'r', 'b', 'n'].includes(piece[1].toLowerCase()) ? piece[1].toLowerCase() : 'q')
-      : undefined;
-
     try {
       move = chess.move({
         from: sourceSquare,
         to: targetSquare,
-        promotion: promotionPiece,
+        promotion: piece && piece.length >= 2 ? piece[1].toLowerCase() : 'q',
       });
     } catch {
       return false;
@@ -280,18 +274,19 @@ function App() {
         const playerMoveCount = history.filter((_, i) => (playerColor === 'white' ? i % 2 === 0 : i % 2 === 1)).length + 1;
         let customMsg = '';
 
-        if (playerMoveCount <= 5) {
-          customMsg = 'Watch your moves';
-        } else if (isBadMove && preRes.threat_preview?.opponent_best_reply_san) {
-          customMsg = `${preRes.threat_preview.opponent_best_reply_san} is the reply to watch.`;
-        } else if (isBadMove && topAlternative?.san) {
-          customMsg = `${topAlternative.san} was the stronger move here.`;
+        if (isBadMove) {
+          if (playerMoveCount <= 5) {
+            customMsg = 'Watch your move — try building your center first.';
+          } else if (preRes.threat_preview?.opponent_best_reply_san) {
+            customMsg = `Watch out, ${preRes.threat_preview.opponent_best_reply_san} is a reply to watch.`;
+          } else if (topAlternative?.san) {
+            customMsg = `${topAlternative.san} was the stronger move here.`;
+          } else {
+            customMsg = `${cleanLabel} move. Careful with this position.`;
+          }
         } else {
           const msgs: Record<string, string> = {
-            Blunder: 'This move loses too much at once.',
-            Mistake: 'This gives your opponent a real target.',
-            Inaccuracy: 'Playable, but there was a cleaner move.',
-            Brilliant: 'Excellent move. You found the top idea.',
+            Brilliant: 'Brilliant move! You found the top idea.',
             Best: 'Best move. Keep going.',
             Excellent: 'Strong move. Your position improves.',
             Good: 'Solid move. No issues here.',
