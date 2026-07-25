@@ -125,7 +125,7 @@ function App() {
 
   // oxlint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (!gameId || warningActive || isThinking) return;
+    if (!gameId || warningActive || isThinking || isRobotThinking) return;
 
     try {
       const chess = new Chess(fen);
@@ -139,12 +139,12 @@ function App() {
       if (shouldRobotMove) {
         const timer = setTimeout(() => {
           void playRobotMove();
-        }, gameMode === 'robot_vs_robot' ? 600 : 250);
+        }, gameMode === 'robot_vs_robot' ? 600 : 400);
 
         return () => clearTimeout(timer);
       }
     } catch {}
-  }, [fen, gameMode, playerColor, gameId, warningActive, isThinking]);
+  }, [fen, gameMode, playerColor, gameId, warningActive, isThinking, isRobotThinking]);
 
   const handleError = (err: any) => {
     console.error(err);
