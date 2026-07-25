@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import type { CSSProperties } from 'react';
 import { Chessboard } from 'react-chessboard';
 import { Chess } from 'chess.js';
 
@@ -10,18 +11,19 @@ interface ChessBoardAreaProps {
   customArrows?: [string, string, string][];
   isPlayerTurn?: boolean;
   badMoveSquare?: string | null;
+  overlay?: React.ReactNode;
 }
 
-export function ChessBoardArea({ 
-  fen, 
+export function ChessBoardArea({
+  fen,
   onMoveAttempt,
   onPieceSelect,
   orientation = 'white',
   customArrows = [],
   isPlayerTurn = true,
-  badMoveSquare
+  badMoveSquare,
+  overlay,
 }: ChessBoardAreaProps) {
-  
   const [moveFrom, setMoveFrom] = useState<string | null>(null);
 
   const handleSquareClick = (square: string) => {
@@ -31,32 +33,27 @@ export function ChessBoardArea({
     const currentTurn = chess.turn();
 
     if (!moveFrom) {
-      // No piece selected yet — try to select this square
       const piece = chess.get(square as any);
       if (piece && piece.color === currentTurn) {
         setMoveFrom(square);
-        onPieceSelect?.(square);   // ← notify parent immediately
+        onPieceSelect?.(square);
       }
       return;
     }
 
-    // A piece is already selected
     if (moveFrom === square) {
-      // Clicked same square — deselect
       setMoveFrom(null);
       onPieceSelect?.(null);
       return;
     }
 
-    // Switching to another friendly piece
     const targetPiece = chess.get(square as any);
     if (targetPiece && targetPiece.color === currentTurn) {
       setMoveFrom(square);
-      onPieceSelect?.(square);   // ← notify with new square
+      onPieceSelect?.(square);
       return;
     }
 
-    // Attempt the move — clear suggestions
     onPieceSelect?.(null);
     const color = currentTurn === 'w' ? 'w' : 'b';
     onMoveAttempt(moveFrom, square, color + 'q');
@@ -75,76 +72,62 @@ export function ChessBoardArea({
   }, [customArrows]);
 
   const customSquareStyles = useMemo(() => {
-    const styles: Record<string, React.CSSProperties> = {};
+    const styles: Record<string, CSSProperties> = {};
 
-    // Highlight the selected piece's square
     if (moveFrom) {
-      styles[moveFrom] = { backgroundColor: 'rgba(255, 255, 0, 0.45)', borderRadius: '0' };
-
-      // Compute legal destinations for the selected piece
+      styles[moveFrom] = { backgroundColor: 'rgba(255, 255, 0, 0.45)' };
       try {
         const chess = new Chess(fen);
         const legalMoves = chess.moves({ square: moveFrom as any, verbose: true });
         legalMoves.forEach((m: any) => {
           const isCapture = !!chess.get(m.to);
           styles[m.to] = isCapture
-            ? {
-                // Ring around the captured piece
-                background:
-                  'radial-gradient(circle, transparent 55%, rgba(34,197,94,0.55) 55%)',
-                borderRadius: '0',
-              }
-            : {
-                // Dot on empty squares
-                background:
-                  'radial-gradient(circle, rgba(34,197,94,0.55) 28%, transparent 28%)',
-                borderRadius: '0',
-              };
+            ? { background: 'radial-gradient(circle, transparent 55%, rgba(34,197,94,0.55) 55%)' }
+            : { background: 'radial-gradient(circle, rgba(34,197,94,0.55) 28%, transparent 28%)' };
         });
       } catch { /* ignore */ }
     }
 
-    // Highlight bad move square in red
     if (badMoveSquare) {
-      styles[badMoveSquare] = { 
-        backgroundColor: 'rgba(239, 68, 68, 0.65)', 
-        boxShadow: 'inset 0 0 10px rgba(185, 28, 28, 0.8)',
-        borderRadius: '0' 
+      styles[badMoveSquare] = {
+        backgroundColor: 'rgba(239, 68, 68, 0.5)',
+        boxShadow: 'inset 0 0 12px rgba(185, 28, 28, 0.8)',
       };
     }
 
     return styles;
   }, [moveFrom, fen, badMoveSquare]);
 
+  // Original dark/light gray squares
   const darkSquareStyle = useMemo(() => ({ backgroundColor: '#4a4a4a' }), []);
   const lightSquareStyle = useMemo(() => ({ backgroundColor: '#8a8a8a' }), []);
 
-  const customNotationStyle = useMemo<React.CSSProperties>(() => ({
-    fill: '#000000',
-    color: '#000000',
-    fontWeight: 'bold',
-    fontSize: '14px',
+
+  const customNotationStyle = useMemo<Record<string, string | number>>(() => ({
+    color: 'rgba(0,0,0,0.45)',
+    fontWeight: 700,
+    fontSize: 11,
   }), []);
 
   return (
-    <div className="flex-grow flex items-center justify-center bg-zinc-900/50 p-4">
-      <div className="w-full max-w-[85vh] 2xl:max-w-[88vh] aspect-square rounded-md overflow-hidden shadow-2xl ring-4 ring-zinc-800">
-        <Chessboard 
-          position={fen}
-          onPieceDrop={handlePieceDrop}
-          onSquareClick={handleSquareClick}
-          onSquareRightClick={() => { setMoveFrom(null); onPieceSelect?.(null); }}
-          boardOrientation={orientation}
-          customArrows={mappedArrows}
-          customSquareStyles={customSquareStyles}
-          animationDuration={200}
-          customDarkSquareStyle={darkSquareStyle}
-          customLightSquareStyle={lightSquareStyle}
-          customNotationStyle={customNotationStyle}
-          showBoardNotation={true}
-          arePiecesDraggable={isPlayerTurn}
-        />
-      </div>
+    // Fill entire parent — no centering, no padding waste
+    <div className="relative w-full h-full">
+      <Chessboard
+        position={fen}
+        onPieceDrop={handlePieceDrop}
+        onSquareClick={handleSquareClick}
+        onSquareRightClick={() => { setMoveFrom(null); onPieceSelect?.(null); }}
+        boardOrientation={orientation}
+        customArrows={mappedArrows}
+        customSquareStyles={customSquareStyles}
+        animationDuration={150}
+        customDarkSquareStyle={darkSquareStyle}
+        customLightSquareStyle={lightSquareStyle}
+        customNotationStyle={customNotationStyle}
+        showBoardNotation={true}
+        arePiecesDraggable={isPlayerTurn}
+      />
+      {overlay}
     </div>
   );
 }

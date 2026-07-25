@@ -1,6 +1,3 @@
-
-import { Bot, User, Bird } from 'lucide-react';
-import clsx from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
 export type Persona = 'robot' | 'owl' | 'friend';
@@ -11,27 +8,6 @@ interface SpeechBubbleProps {
   classification?: string;
   isThinking?: boolean;
 }
-
-const personaConfig = {
-  robot: {
-    icon: Bot,
-    name: 'Robot Coach',
-    color: 'text-blue-400',
-    bg: 'bg-blue-500/10',
-  },
-  owl: {
-    icon: Bird,
-    name: 'Grandmaster Owl',
-    color: 'text-amber-600',
-    bg: 'bg-amber-500/10',
-  },
-  friend: {
-    icon: User,
-    name: 'Chill Friend',
-    color: 'text-emerald-400',
-    bg: 'bg-emerald-500/10',
-  },
-};
 
 const getClassificationColor = (classification?: string) => {
   switch (classification?.toLowerCase()) {

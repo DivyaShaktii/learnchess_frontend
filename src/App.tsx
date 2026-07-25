@@ -1,12 +1,12 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { Chess } from 'chess.js';
+import { AlertCircle, X, RefreshCcw } from 'lucide-react';
 import { ChessBoardArea } from './components/ChessBoardArea';
-import { CoachPanel } from './components/CoachPanel';
-import type { Persona } from './components/SpeechBubble';
-import { getMoveSquares } from './utils/chessTranslator';
+import { CoachOverlay } from './components/CoachOverlay';
+import { MoveLog } from './components/MoveLog';
 import { api } from './services/api';
 import type { MoveAlternative, ThreatPreview } from './services/api';
-import { Chess } from 'chess.js';
-import { Settings, AlertCircle, X, RefreshCcw } from 'lucide-react';
+import { getMoveSquares } from './utils/chessTranslator';
 
 export interface ToastProps {
   message: string;
@@ -14,16 +14,17 @@ export interface ToastProps {
 }
 
 function Toast({ message, onClose }: ToastProps) {
+  // oxlint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     const timer = setTimeout(onClose, 5000);
     return () => clearTimeout(timer);
   }, [onClose]);
 
   return (
-    <div className="fixed top-4 right-4 z-50 flex items-center gap-2 bg-red-950 border border-red-800 text-red-200 px-4 py-3 rounded shadow-lg animate-in fade-in slide-in-from-top-4">
+    <div className="fixed top-4 right-4 z-50 flex items-center gap-2 rounded border border-red-800 bg-red-950 px-4 py-3 text-red-200 shadow-lg animate-in fade-in slide-in-from-top-4">
       <AlertCircle size={18} className="shrink-0" />
       <span className="text-sm font-medium">{message}</span>
-      <button onClick={onClose} className="ml-2 hover:bg-red-900 rounded p-1 transition-colors">
+      <button onClick={onClose} className="ml-2 rounded p-1 transition-colors hover:bg-red-900">
         <X size={14} />
       </button>
     </div>
@@ -32,25 +33,29 @@ function Toast({ message, onClose }: ToastProps) {
 
 export type GameMode = 'you_vs_robot' | 'robot_vs_robot' | 'you_vs_friend';
 
+type MoveHistoryEntry = {
+  san: string;
+  classification: string;
+  fen_before?: string;
+};
+
 const START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 
 function App() {
   const [gameMode, setGameMode] = useState<GameMode>('you_vs_robot');
   const [playerColor, setPlayerColor] = useState<'white' | 'black'>('white');
-  const [learnerMode, setLearnerMode] = useState<boolean>(true);
+  const [learnerMode, setLearnerMode] = useState(true);
+  const [coachVoiceEnabled, setCoachVoiceEnabled] = useState(false);
   const [gameId, setGameId] = useState<string | null>(null);
-  const [fen, setFen] = useState<string>(START_FEN);
-  const [history, setHistory] = useState<Array<{ san: string; classification: string }>>([]);
-  
-  const [persona, setPersona] = useState<Persona>('robot');
+  const [fen, setFen] = useState(START_FEN);
+  const [history, setHistory] = useState<MoveHistoryEntry[]>([]);
+
   const [isThinking, setIsThinking] = useState(false);
   const [isRobotThinking, setIsRobotThinking] = useState(false);
   const [coachMessage, setCoachMessage] = useState('');
-  
-  // Toast error
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // Warning & highlight state
+  const [overlayVisible, setOverlayVisible] = useState(false);
   const [warningActive, setWarningActive] = useState(false);
   const [pendingMoveUci, setPendingMoveUci] = useState<string | null>(null);
   const [pendingFen, setPendingFen] = useState<string | null>(null);
@@ -58,27 +63,73 @@ function App() {
   const [classification, setClassification] = useState<string | undefined>();
   const [threat, setThreat] = useState<ThreatPreview | null>(null);
   const [alternatives, setAlternatives] = useState<MoveAlternative[]>([]);
-
-  // Suggestions shown when player clicks a piece (fetched from engine)
   const [squareSuggestions, setSquareSuggestions] = useState<MoveAlternative[]>([]);
 
-  // Stores the FEN before a player's attempted move so we can roll back if they dismiss a warning
-  const previousFenRef = useRef<string>(START_FEN);
+  const previousFenRef = useRef(START_FEN);
+  const lastSpokenMessageRef = useRef('');
 
-  // Reactive isPlayerTurn so effects can safely depend on it
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const savedPreference = window.localStorage.getItem('coach-voice-enabled');
+    if (savedPreference === 'true') {
+      setCoachVoiceEnabled(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem('coach-voice-enabled', String(coachVoiceEnabled));
+  }, [coachVoiceEnabled]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+
+    if (!coachVoiceEnabled || !coachMessage || isThinking) {
+      window.speechSynthesis.cancel();
+      return;
+    }
+
+    if (coachMessage === lastSpokenMessageRef.current) return;
+
+    const utterance = new SpeechSynthesisUtterance(coachMessage);
+    const availableVoices = window.speechSynthesis.getVoices();
+    const preferredVoice =
+      availableVoices.find((voice) => /en/i.test(voice.lang) && /female|zira|aria|samantha|google us english/i.test(voice.name)) ||
+      availableVoices.find((voice) => /en/i.test(voice.lang)) ||
+      availableVoices[0];
+
+    if (preferredVoice) {
+      utterance.voice = preferredVoice;
+    }
+
+    utterance.rate = 1;
+    utterance.pitch = 1;
+    utterance.volume = 1;
+
+    lastSpokenMessageRef.current = coachMessage;
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utterance);
+
+    return () => {
+      window.speechSynthesis.cancel();
+    };
+  }, [coachMessage, coachVoiceEnabled, isThinking]);
+
   const isPlayerTurn = useMemo(() => {
     try {
       const chess = new Chess(fen);
       if (chess.isGameOver()) return false;
+
       const isWhiteTurn = chess.turn() === 'w';
       let turn = false;
+
       if (gameMode === 'you_vs_robot') {
         turn = playerColor === 'white' ? isWhiteTurn : !isWhiteTurn;
       } else if (gameMode === 'you_vs_friend') {
         turn = true;
-      } else if (gameMode === 'robot_vs_robot') {
-        turn = false;
       }
+
       return turn && !isRobotThinking;
     } catch {
       return false;
@@ -86,42 +137,39 @@ function App() {
   }, [fen, gameMode, playerColor, isRobotThinking]);
 
   useEffect(() => {
-    startNewGame();
+    void startNewGame();
   }, []);
 
-
-
+  // oxlint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (!gameId || warningActive) return; // Pause robot move while 4-button options panel is active
-    
+    if (!gameId || warningActive) return;
+
     try {
       const chess = new Chess(fen);
-      if (chess.isGameOver()) return; // Stop if game is over
+      if (chess.isGameOver()) return;
 
       const isWhiteTurn = chess.turn() === 'w';
-      
-      const shouldRobotMove = 
-        (gameMode === 'robot_vs_robot') || 
+      const shouldRobotMove =
+        gameMode === 'robot_vs_robot' ||
         (gameMode === 'you_vs_robot' && (playerColor === 'white' ? !isWhiteTurn : isWhiteTurn));
 
       if (shouldRobotMove) {
-        // Add a slight delay for better UX and realism
         const timer = setTimeout(() => {
-          playRobotMove();
-        }, gameMode === 'robot_vs_robot' ? 1500 : 800);
-        
+          void playRobotMove();
+        }, gameMode === 'robot_vs_robot' ? 600 : 250);
+
         return () => clearTimeout(timer);
       }
-    } catch(e) {}
+    } catch {}
   }, [fen, gameMode, playerColor, gameId, warningActive]);
 
   const handleError = (err: any) => {
     console.error(err);
     if (err.status === 404) {
       setToastMessage('Game session lost. Starting a new game.');
-      startNewGame();
+      void startNewGame();
     } else if (err.status !== 400) {
-      setToastMessage('Coach is unreachable — check the backend is running');
+      setToastMessage('Coach is unreachable - check the backend is running');
     }
   };
 
@@ -129,19 +177,22 @@ function App() {
     try {
       setIsThinking(false);
       setIsRobotThinking(false);
-      setCoachMessage('Starting a new game. Good luck!');
+      setCoachMessage('');
       setSquareSuggestions([]);
+      lastSpokenMessageRef.current = '';
       const res = await api.startNewGame();
       setGameId(res.game_id);
       setFen(res.fen);
       setHistory([]);
       resetWarningState();
+      previousFenRef.current = res.fen;
     } catch (err) {
       handleError(err);
     }
   };
 
   const resetWarningState = () => {
+    setOverlayVisible(false);
     setWarningActive(false);
     setPendingMoveUci(null);
     setPendingFen(null);
@@ -149,25 +200,26 @@ function App() {
     setClassification(undefined);
     setThreat(null);
     setAlternatives([]);
+    lastSpokenMessageRef.current = '';
   };
 
-  /** Undo / Rollback player's move in both Frontend and Backend */
   const handleUndoBadMove = async () => {
     if (!gameId) return;
+
     try {
-      const res = await api.undoMove(gameId);
+      const plies = gameMode === 'you_vs_friend' ? 1 : 2;
+      const res = await api.undoMove(gameId, plies);
       setFen(res.fen);
       setHistory(res.move_history);
       resetWarningState();
       setCoachMessage('Move undone. Choose your next move!');
-    } catch (err) {
-      // Fallback
+    } catch {
       setFen(previousFenRef.current);
       resetWarningState();
     }
   };
 
-  const refreshGameState = async (id: string) => {
+  const refreshGameState = useCallback(async (id: string) => {
     try {
       const state = await api.getGameState(id);
       setFen(state.fen);
@@ -178,103 +230,131 @@ function App() {
     } catch (err) {
       handleError(err);
     }
-  };
+  }, []);
 
-  /**
-   * Called when the player clicks a destination square.
-   * Moves the piece immediately (optimistic), then runs a PRECHECK before committing.
-   * If bad: shows warning panel so player can confirm or revert.
-   * If good: auto-commits and shows a positive message.
-   */
-  /**
-   * Called when the player moves a piece.
-   * Runs PRECHECK first. Pawn does NOT move yet.
-   * Coach gives feedback. Pawn only moves when player clicks 'Play Anyway'.
-   */
-  const handleMoveAttempt = async (sourceSquare: string, targetSquare: string, piece: string) => {
+  const handleMoveAttempt = (sourceSquare: string, targetSquare: string, piece: string) => {
     if (isThinking || isRobotThinking || !gameId) return false;
 
     const chess = new Chess(fen);
+    let move;
+
     try {
-      const move = chess.move({
+      move = chess.move({
         from: sourceSquare,
         to: targetSquare,
         promotion: piece && piece.length >= 2 ? piece[1].toLowerCase() : 'q',
       });
-      if (!move) return false;
-
-      const moveUci = move.from + move.to + (move.promotion || '');
-      const nextFen = chess.fen();
-
-      setIsThinking(true);
-      setSquareSuggestions([]);
-      setCoachMessage('Analysing...');
-
-      const preRes = await api.precheckMove(gameId, moveUci);
-      const label = preRes.label || 'Move';
-      const labelMap: Record<string, string> = {
-        'Brilliant': 'Brilliant',
-        'Great': 'Great',
-        'Best Move': 'Best',
-        'Best': 'Best',
-        'Excellent': 'Excellent',
-        'Good': 'Good',
-        'Book': 'Book',
-        'Inaccuracy': 'Inaccuracy',
-        'Mistake': 'Mistake',
-        'Blunder': 'Blunder',
-        'Worst Move': 'Blunder',
-      };
-      
-      const cleanLabel = labelMap[label] || label;
-      setCoachMessage(`User - ${cleanLabel}`);
-      setClassification(cleanLabel);
-      setPendingMoveUci(moveUci);
-      setPendingFen(nextFen); // Save target FEN for when Play Anyway is clicked
-      setThreat(preRes.threat_preview);
-      setAlternatives(preRes.top_alternatives ?? []);
-
-      const isBadMove = ['Blunder', 'Mistake', 'Inaccuracy', 'Worst Move'].includes(cleanLabel);
-      if (isBadMove) {
-        setBadMoveSquare(move.to);
-        setPendingMoveUci(moveUci);
-        setPendingFen(nextFen);
-        setWarningActive(true);
-        setIsThinking(false);
-      } else {
-        // Good/Best/Book moves commit immediately for seamless gameplay!
-        setBadMoveSquare(null);
-        setFen(nextFen);
-        await commitAndFinalize(moveUci);
-      }
-      return true;
-    } catch (e) {
-      setIsThinking(false);
+    } catch {
       return false;
     }
+
+    if (!move) return false;
+
+    const moveUci = move.from + move.to + (move.promotion || '');
+    const nextFen = chess.fen();
+
+    void (async () => {
+      try {
+        setOverlayVisible(false);
+        setWarningActive(false);
+        setIsThinking(true);
+        setSquareSuggestions([]);
+        setCoachMessage('Analysing...');
+
+        const preRes = await api.precheckMove(gameId, moveUci);
+        const label = preRes.label || 'Move';
+        const labelMap: Record<string, string> = {
+          Brilliant: 'Brilliant',
+          Great: 'Great',
+          'Best Move': 'Best',
+          Best: 'Best',
+          Excellent: 'Excellent',
+          Good: 'Good',
+          Book: 'Book',
+          Inaccuracy: 'Inaccuracy',
+          Mistake: 'Mistake',
+          Blunder: 'Blunder',
+          'Worst Move': 'Blunder',
+        };
+        const cleanLabel = labelMap[label] || label;
+        setClassification(cleanLabel);
+        setPendingMoveUci(moveUci);
+        setPendingFen(nextFen);
+        setThreat(preRes.threat_preview);
+        setAlternatives(preRes.top_alternatives ?? []);
+
+        const isBadMove = ['Blunder', 'Mistake', 'Inaccuracy', 'Worst Move'].includes(cleanLabel);
+        const topAlternative = preRes.top_alternatives?.[0];
+
+        const playerMoveCount = history.filter((_, i) => (playerColor === 'white' ? i % 2 === 0 : i % 2 === 1)).length + 1;
+        let customMsg = '';
+
+        if (playerMoveCount <= 5) {
+          customMsg = 'Watch your moves';
+        } else if (isBadMove && preRes.threat_preview?.opponent_best_reply_san) {
+          customMsg = `${preRes.threat_preview.opponent_best_reply_san} is the reply to watch.`;
+        } else if (isBadMove && topAlternative?.san) {
+          customMsg = `${topAlternative.san} was the stronger move here.`;
+        } else {
+          const msgs: Record<string, string> = {
+            Blunder: 'This move loses too much at once.',
+            Mistake: 'This gives your opponent a real target.',
+            Inaccuracy: 'Playable, but there was a cleaner move.',
+            Brilliant: 'Excellent move. You found the top idea.',
+            Best: 'Best move. Keep going.',
+            Excellent: 'Strong move. Your position improves.',
+            Good: 'Solid move. No issues here.',
+            Book: 'Book move. You are still in theory.',
+          };
+          customMsg = msgs[cleanLabel] || `${cleanLabel} move.`;
+        }
+
+        setCoachMessage(customMsg);
+
+        if (isBadMove) {
+          setBadMoveSquare(move.to);
+          setWarningActive(true);
+          setOverlayVisible(true);
+          setIsThinking(false);
+          return;
+        }
+
+        setBadMoveSquare(null);
+        setFen(nextFen);
+        setOverlayVisible(true);
+        setIsThinking(false);
+        await commitAndFinalize(moveUci);
+      } catch (error) {
+        console.error('Error in handleMoveAttempt:', error);
+        setIsThinking(false);
+        setOverlayVisible(true);
+        setWarningActive(true);
+      }
+    })();
+
+    return true;
   };
 
-  /** Finalizes pending move when Play Anyway is clicked -- pawn moves now! */
   const handleCommitWarning = async () => {
     if (pendingMoveUci && gameId) {
       setIsThinking(true);
+      const moveUci = pendingMoveUci;
+      const targetFen = pendingFen;
+      resetWarningState();
       try {
-        if (pendingFen) {
-          setFen(pendingFen); // Move pawn to target square now!
-        }
-        await commitAndFinalize(pendingMoveUci);
+        if (targetFen) setFen(targetFen);
+        await commitAndFinalize(moveUci);
       } catch (err) {
         handleError(err);
       } finally {
         setIsThinking(false);
       }
     }
-    resetWarningState();
   };
 
-  /** Commits a move to the backend and refreshes game state. */
   const commitAndFinalize = async (moveUci: string) => {
     if (!gameId) return;
+
     try {
       const commitRes = await api.commitMove(gameId, moveUci);
       setFen(commitRes.fen);
@@ -282,41 +362,29 @@ function App() {
 
       const label = commitRes.classification || 'Move';
       const labelMap: Record<string, string> = {
-        'Brilliant': 'Brilliant',
-        'Great': 'Great',
+        Brilliant: 'Brilliant',
+        Great: 'Great',
         'Best Move': 'Best',
-        'Best': 'Best',
-        'Excellent': 'Excellent',
-        'Good': 'Good',
-        'Book': 'Book',
-        'Inaccuracy': 'Inaccuracy',
-        'Mistake': 'Mistake',
-        'Blunder': 'Blunder',
+        Best: 'Best',
+        Excellent: 'Excellent',
+        Good: 'Good',
+        Book: 'Book',
+        Inaccuracy: 'Inaccuracy',
+        Mistake: 'Mistake',
+        Blunder: 'Blunder',
         'Worst Move': 'Blunder',
       };
-      
       const cleanLabel = labelMap[label] || label;
-      const userMessage = `User - ${cleanLabel}`;
-      setCoachMessage(userMessage);
       setClassification(cleanLabel);
 
-      const isBadMove = ['Blunder', 'Mistake', 'Inaccuracy', 'Worst Move'].includes(cleanLabel);
-      if (isBadMove) {
-        const targetSquare = moveUci.substring(2, 4);
-        setBadMoveSquare(targetSquare);
-        setWarningActive(true);
-        setPendingMoveUci(moveUci);
-        try {
-          const preRes = await api.precheckMove(gameId, moveUci);
-          setThreat(preRes.threat_preview);
-          setAlternatives(preRes.top_alternatives ?? []);
-        } catch { /* ignore */ }
-      } else {
-        resetWarningState(); // Move Controls return to Ready and opponent engine responds!
-      }
+      setOverlayVisible(true);
+      setPendingMoveUci(null);
+      setPendingFen(null);
+      setWarningActive(false);
 
       if (commitRes.is_game_over) {
         setCoachMessage(`Game over! ${commitRes.result || ''}`);
+        setOverlayVisible(true);
       }
     } catch (err) {
       handleError(err);
@@ -325,8 +393,9 @@ function App() {
     }
   };
 
-  const executeCommit = async (moveUci: string) => {
+  const executeCommit = useCallback(async (moveUci: string) => {
     if (!gameId) return;
+
     try {
       const commitRes = await api.commitMove(gameId, moveUci);
       setFen(commitRes.fen);
@@ -335,47 +404,44 @@ function App() {
     } catch (err) {
       handleError(err);
     }
-  };
+  }, [gameId, refreshGameState]);
 
-  const playRobotMove = async () => {
+  const playRobotMove = useCallback(async () => {
     if (!gameId) return;
+
     setIsRobotThinking(true);
     try {
       const res = await api.getBestMoves(gameId, 1);
       if (res.moves && res.moves.length > 0) {
-        const botMove = res.moves[0];
-        const moveUci = botMove.move;
-        if (moveUci) {
-          await executeCommit(moveUci);
-        }
+        const moveUci = res.moves[0].move;
+        if (moveUci) await executeCommit(moveUci);
       }
     } catch (err) {
       handleError(err);
     } finally {
       setIsRobotThinking(false);
     }
-  };
-
-
+  }, [executeCommit, gameId]);
 
   const handleDismissWarning = () => {
-    // Revert the board — snap the piece back to where it came from
     setFen(previousFenRef.current);
     resetWarningState();
-    setCoachMessage('Good call. Let\'s find a better move.');
-    // Re-show suggestions so the player can pick a better one
-    // (squareSuggestions are still in state from before the bad move attempt)
+    setCoachMessage('Good call. Find a better move!');
   };
 
   const handlePlayAlternative = async (moveUci: string) => {
     if (!gameId) return;
+
     setIsThinking(true);
-    // Snap to the new square first so it feels responsive
     try {
       const chess = new Chess(previousFenRef.current);
-      const m = chess.move(moveUci);
-      if (m) setFen(chess.fen());
-    } catch { /* ignore — executeCommit will set correct FEN */ }
+      const parsedMove = chess.move(moveUci);
+      if (parsedMove) setFen(chess.fen());
+    } catch {
+      // Ignore preview-only failures; the backend remains authoritative.
+    }
+
+    resetWarningState();
     await executeCommit(moveUci);
     setCoachMessage('Playing the suggested move!');
     setIsThinking(false);
@@ -383,25 +449,26 @@ function App() {
 
   const handleAskHint = async () => {
     if (!gameId) return;
+
     setIsThinking(true);
     try {
       const res = await api.getBestMoves(gameId, 3);
-      setCoachMessage("Here are some strong ideas.");
-      setWarningActive(true); // Re-using the warning panel to display alternatives
-      setClassification('best move');
+      setCoachMessage('Here are some strong ideas.');
+      setWarningActive(true);
+      setOverlayVisible(true);
+      setClassification('Best');
       setThreat(null);
-      // Map to compatible format for MoveAlternative
-      setAlternatives(res.moves.map((m: any) => ({
-         move: m.move,   // UCI — used when committing the move
-         san: m.san,     // SAN — used for display & board arrows
-         score_cp: m.score_cp,
-         is_mate: m.is_mate,
-         mate_in: m.mate_in,
-         pv: m.pv ?? [],
-      } as MoveAlternative)));
-      
-      // Let's adjust handlePlayAlternative to handle SAN if move is actually SAN.
-      setPendingMoveUci(null); // No pending move to "commit anyway"
+      setAlternatives(
+        res.moves.map((m: any) => ({
+          move: m.move,
+          san: m.san,
+          score_cp: m.score_cp,
+          is_mate: m.is_mate,
+          mate_in: m.mate_in,
+          pv: m.pv ?? [],
+        })) as MoveAlternative[],
+      );
+      setPendingMoveUci(null);
     } catch (err) {
       handleError(err);
     } finally {
@@ -409,194 +476,225 @@ function App() {
     }
   };
 
-  /** Called when the player clicks a piece to select it. Fetches top engine suggestions if Learner Mode is ON. */
   const handlePieceSelect = async (square: string | null) => {
     if (!learnerMode || !square || !gameId || isThinking || isRobotThinking) {
       setSquareSuggestions([]);
       return;
     }
-    // Debounce — fetch after a tiny delay so rapid clicks don't spam the API
+
     try {
       const res = await api.getBestMoves(gameId, 3);
       setSquareSuggestions(res.moves);
-      setCoachMessage('⚡ Learner Mode: Top engine moves — press one to play, or choose your own:');
     } catch {
-      // Silently ignore — suggestions are optional
       setSquareSuggestions([]);
     }
   };
 
-  /** Play a suggestion move — runs the same precheck-before-commit flow as a manual move. */
-  const handlePlaySuggestion = (moveUci: string) => {
-    if (!gameId || isThinking || isRobotThinking) return;
-    const from = moveUci.substring(0, 2);
-    const to   = moveUci.substring(2, 4);
-    // Use handleMoveAttempt which handles precheck, warnings, rollback, etc.
-    handleMoveAttempt(from, to, 'wq');
-  };
+  useEffect(() => {
+    if (!warningActive) {
+      previousFenRef.current = fen;
+    }
+  }, [fen, warningActive]);
 
-  // Board arrows: warning mode (threat + alternatives) OR piece-selection suggestions (if Learner Mode is ON)
   const boardArrows = useMemo<[string, string, string][]>(() => {
     if (!learnerMode) return [];
+
     const arrows: [string, string, string][] = [];
+
     if (warningActive) {
-      if (threat && threat.opponent_best_reply_san) {
+      if (threat?.opponent_best_reply_san) {
         const sq = getMoveSquares(fen, threat.opponent_best_reply_san);
         if (sq) arrows.push([sq.from, sq.to, 'rgba(239, 68, 68, 0.85)']);
       }
-      alternatives.forEach(alt => {
+
+      alternatives.forEach((alt) => {
         const sq = getMoveSquares(fen, alt.san);
         if (sq) arrows.push([sq.from, sq.to, 'rgba(34, 197, 94, 0.85)']);
       });
-    } else if (learnerMode && squareSuggestions.length > 0) {
+    } else if (squareSuggestions.length > 0) {
       squareSuggestions.forEach((alt, idx) => {
         const sq = getMoveSquares(fen, alt.san);
         if (sq) {
-          const alpha = ([0.90, 0.65, 0.40][idx]) ?? 0.3;
+          const alpha = [0.9, 0.65, 0.4][idx] ?? 0.3;
           arrows.push([sq.from, sq.to, `rgba(34, 197, 94, ${alpha})`]);
         }
       });
     }
+
     return arrows;
   }, [warningActive, learnerMode, squareSuggestions, threat, alternatives, fen]);
 
   return (
-    <div className="flex flex-col lg:flex-row h-screen bg-zinc-950 text-zinc-100 overflow-hidden">
-      
-      {toastMessage && (
-        <Toast message={toastMessage} onClose={() => setToastMessage(null)} />
-      )}
+    <div
+      className="flex h-screen flex-col overflow-hidden text-zinc-100"
+      style={{ background: '#1a1a1a', fontFamily: "'Inter', 'Segoe UI', sans-serif" }}
+    >
+      {toastMessage && <Toast message={toastMessage} onClose={() => setToastMessage(null)} />}
 
-      {/* Settings / Mobile Header */}
-      <div className="lg:hidden p-4 border-b border-zinc-800 flex justify-between items-center bg-zinc-900">
-        <h1 className="font-bold text-lg">Mistake Coach</h1>
-        <div className="flex gap-2 items-center">
-          <span className="text-sm font-semibold text-zinc-300 px-2 py-1 bg-zinc-800 rounded border border-zinc-700">
-            You Vs Robot
-          </span>
+      <div
+        className="flex shrink-0 items-center justify-between border-b border-zinc-800 px-5"
+        style={{ height: '44px', background: '#111' }}
+      >
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <select
+              value={gameMode}
+              onChange={(e) => {
+                setGameMode(e.target.value as GameMode);
+                void startNewGame();
+              }}
+              className="cursor-pointer bg-transparent text-sm font-bold text-zinc-100 outline-none"
+              style={{ appearance: 'auto' }}
+            >
+              <option value="you_vs_robot" className="bg-zinc-900">You Vs Robot</option>
+              <option value="robot_vs_robot" className="bg-zinc-900">Robot Vs Robot</option>
+              <option value="you_vs_friend" className="bg-zinc-900">You Vs Friend</option>
+            </select>
+          </div>
 
           {gameMode === 'you_vs_robot' && (
-            <button
-              onClick={() => {
-                const nextColor = playerColor === 'white' ? 'black' : 'white';
-                setPlayerColor(nextColor);
-                startNewGame();
-              }}
-              className="text-xs font-semibold px-2 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded border border-zinc-700 transition-colors"
-            >
-              {playerColor === 'white' ? '⚪ White' : '⚫ Black'}
-            </button>
+            <div className="flex items-center gap-3 text-sm">
+              <span className="text-zinc-500">Side:</span>
+              {(['white', 'black'] as const).map((color) => (
+                <label key={color} className="flex cursor-pointer items-center gap-1.5">
+                  <input
+                    type="radio"
+                    name="side"
+                    checked={playerColor === color}
+                    onChange={() => {
+                      setPlayerColor(color);
+                      void startNewGame();
+                    }}
+                    className="accent-white"
+                  />
+                  <span className={`text-sm font-medium ${playerColor === color ? 'text-white' : 'text-zinc-500'}`}>
+                    {color === 'white' ? 'White' : 'Black'}
+                  </span>
+                </label>
+              ))}
+            </div>
           )}
+
+          <button
+            onClick={() => void startNewGame()}
+            className="flex items-center gap-1.5 text-sm text-zinc-400 transition-colors hover:text-zinc-200"
+          >
+            <RefreshCcw size={13} />
+            Restart Game
+          </button>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => {
+              if (!('speechSynthesis' in window)) {
+                setToastMessage('Coach voice is not supported in this browser.');
+                return;
+              }
+
+              const nextEnabled = !coachVoiceEnabled;
+              setCoachVoiceEnabled(nextEnabled);
+
+              if (!nextEnabled) {
+                window.speechSynthesis.cancel();
+                lastSpokenMessageRef.current = '';
+              }
+            }}
+            className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition-all ${
+              coachVoiceEnabled
+                ? 'border-cyan-700/60 bg-cyan-900/50 text-cyan-300'
+                : 'border-zinc-700 bg-zinc-800 text-zinc-400'
+            }`}
+          >
+            <span className={`h-2 w-2 rounded-full ${coachVoiceEnabled ? 'bg-cyan-400' : 'bg-zinc-600'}`} />
+            Coach Voice: {coachVoiceEnabled ? 'ON' : 'OFF'}
+          </button>
 
           <button
             onClick={() => {
               setLearnerMode(!learnerMode);
               if (learnerMode) setSquareSuggestions([]);
             }}
-            className={`flex items-center gap-1 text-[11px] font-semibold px-2 py-1.5 rounded border transition-colors ${
-              learnerMode 
-                ? 'bg-emerald-950/60 text-emerald-300 border-emerald-800/80' 
-                : 'bg-zinc-800 text-zinc-400 border-zinc-700'
+            className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition-all ${
+              learnerMode
+                ? 'border-emerald-700/60 bg-emerald-900/50 text-emerald-300'
+                : 'border-zinc-700 bg-zinc-800 text-zinc-500'
             }`}
           >
-            Learner: {learnerMode ? 'ON' : 'OFF'}
+            <span className={`h-2 w-2 rounded-full ${learnerMode ? 'bg-emerald-400' : 'bg-zinc-600'}`} />
+            Learner Mode: {learnerMode ? 'ON' : 'OFF'}
+          </button>
+
+          <button
+            onClick={() => void handleUndoBadMove()}
+            className="flex items-center gap-1.5 rounded-full border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-xs font-semibold text-zinc-200 transition-all hover:bg-zinc-700"
+          >
+            <RefreshCcw size={12} />
+            Undo Move
           </button>
         </div>
       </div>
 
-      {/* Main Board Container */}
-      <div className="flex-grow flex flex-col relative overflow-hidden">
-        {/* Desktop & Mobile Header Bar */}
-        <div className="p-3 px-6 border-b border-zinc-800 flex flex-wrap justify-between items-center bg-zinc-950/90 backdrop-blur z-20 gap-3">
-          <div className="flex gap-3 items-center">
-            <Settings size={16} className="text-zinc-400 shrink-0" />
-            <span className="text-sm font-bold text-zinc-100 pr-3 border-r border-zinc-700">
-              You Vs Robot
-            </span>
-            
-            {gameMode === 'you_vs_robot' && (
-              <button
-                onClick={() => {
-                  const nextColor = playerColor === 'white' ? 'black' : 'white';
-                  setPlayerColor(nextColor);
-                  startNewGame();
-                }}
-                className="text-xs font-semibold px-2.5 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded border border-zinc-700 transition-colors"
-              >
-                Side: {playerColor === 'white' ? '⚪ White' : '⚫ Black'}
-              </button>
+      <div className="flex flex-1 items-center justify-center overflow-hidden" style={{ background: '#1a1a1a' }}>
+        <div className="flex h-full items-stretch" style={{ maxHeight: 'calc(100vh - 44px)' }}>
+          <div
+            className="relative flex-shrink-0"
+            style={{
+              width: 'min(calc(100vh - 44px - 8px), calc(100vw - 380px - 8px))',
+              height: 'min(calc(100vh - 44px - 8px), calc(100vw - 380px - 8px))',
+            }}
+          >
+            {isRobotThinking && (
+              <div className="absolute top-2 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2 rounded-full border border-zinc-700 bg-black/80 px-3 py-1 text-xs text-zinc-400 backdrop-blur">
+                <span className="h-2 w-2 rounded-full bg-cyan-400 animate-ping" />
+                Robot is thinking...
+              </div>
             )}
 
-            <button onClick={startNewGame} className="text-xs font-semibold text-zinc-400 hover:text-zinc-200 transition-colors">
-              Restart Game
-            </button>
+            <ChessBoardArea
+              fen={fen}
+              onMoveAttempt={handleMoveAttempt}
+              onPieceSelect={handlePieceSelect}
+              orientation={playerColor}
+              customArrows={boardArrows}
+              isPlayerTurn={isPlayerTurn}
+              badMoveSquare={badMoveSquare}
+              overlay={
+                <CoachOverlay
+                  visible={overlayVisible}
+                  isThinking={isThinking}
+                  coachMessage={coachMessage}
+                  classification={classification}
+                  threat={threat}
+                  alternatives={alternatives}
+                  fen={fen}
+                  moveCount={history.filter((_, i) => (playerColor === 'white' ? i % 2 === 0 : i % 2 === 1)).length + 1}
+                  onCommitWarning={handleCommitWarning}
+                  onDismissWarning={handleDismissWarning}
+                  onPlayAlternative={(moveIdentifier) => {
+                    try {
+                      const chess = new Chess(fen);
+                      const parsedMove = chess.move(moveIdentifier);
+                      if (parsedMove) {
+                        void handlePlayAlternative(parsedMove.from + parsedMove.to + (parsedMove.promotion || ''));
+                        return;
+                      }
+                    } catch {}
+                    void handlePlayAlternative(moveIdentifier);
+                  }}
+                  onAskHint={handleAskHint}
+                />
+              }
+            />
           </div>
 
-          <div className="flex gap-2 items-center">
-            <button
-              onClick={() => {
-                setLearnerMode(!learnerMode);
-                if (learnerMode) setSquareSuggestions([]);
-              }}
-              className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1 rounded border transition-colors ${
-                learnerMode 
-                  ? 'bg-emerald-950/60 text-emerald-300 border-emerald-800/80 hover:bg-emerald-900/60' 
-                  : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:bg-zinc-700 hover:text-zinc-200'
-              }`}
-            >
-              <span className={`w-2 h-2 rounded-full ${learnerMode ? 'bg-emerald-400 animate-pulse' : 'bg-zinc-500'}`} />
-              Learner Mode: {learnerMode ? 'ON' : 'OFF'}
-            </button>
-
-            <button
-              onClick={handleUndoBadMove}
-              className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1 bg-zinc-800 hover:bg-zinc-700 text-blue-400 rounded border border-zinc-700 transition-colors"
-            >
-              <RefreshCcw size={14} />
-              Undo Move
-            </button>
+          <div
+            className="flex flex-shrink-0 flex-col overflow-hidden border-l border-zinc-800/60"
+            style={{ width: '420px', background: '#0f0f12' }}
+          >
+            <MoveLog history={history} playerColor={playerColor} />
           </div>
         </div>
-        
-        <ChessBoardArea 
-          fen={fen} 
-          onMoveAttempt={handleMoveAttempt}
-          onPieceSelect={handlePieceSelect}
-          orientation={playerColor}
-          customArrows={boardArrows}
-          isPlayerTurn={isPlayerTurn}
-          badMoveSquare={badMoveSquare}
-        />
-      </div>
-
-      {/* Side Panel */}
-      <div className="w-full lg:w-[350px] xl:w-[380px] shrink-0 h-[40vh] lg:h-full border-t lg:border-t-0 border-zinc-800 z-10">
-        <CoachPanel 
-          persona={persona}
-          isThinking={isThinking || isRobotThinking}
-          warningActive={warningActive}
-          coachMessage={coachMessage}
-          classification={classification}
-          threat={threat}
-          alternatives={alternatives}
-          history={history}
-          fen={fen}
-          onCommitWarning={handleCommitWarning}
-          onDismissWarning={handleUndoBadMove}
-          onPlayAlternative={(moveIdentifier) => {
-             try {
-                const chess = new Chess(fen);
-                const m = chess.move(moveIdentifier);
-                if (m) {
-                   handlePlayAlternative(m.from + m.to + (m.promotion || ''));
-                   return;
-                }
-             } catch(e) {}
-             handlePlayAlternative(moveIdentifier);
-          }}
-          onPlaySuggestion={handlePlaySuggestion}
-          onAskHint={handleAskHint}
-        />
       </div>
     </div>
   );

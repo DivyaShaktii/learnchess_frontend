@@ -50,6 +50,7 @@ export interface GameStateResponse {
   move_history: Array<{
     san: string;
     classification: string;
+    fen_before?: string;
   }>;
 }
 
@@ -115,8 +116,8 @@ export const api = {
     return fetchWithCheck(`${API_BASE}/api/game/${gameId}/state`);
   },
 
-  async undoMove(gameId: string): Promise<GameStateResponse> {
-    return fetchWithCheck(`${API_BASE}/api/game/${gameId}/undo`, { method: 'POST' });
+  async undoMove(gameId: string, plies: number = 2): Promise<GameStateResponse> {
+    return fetchWithCheck(`${API_BASE}/api/game/${gameId}/undo?plies=${plies}`, { method: 'POST' });
   },
 
   async getBestMoves(gameId: string, n: number = 3): Promise<BestMovesResponse> {
