@@ -75,15 +75,24 @@ export function ChessBoardArea({
     const styles: Record<string, CSSProperties> = {};
 
     if (moveFrom) {
-      styles[moveFrom] = { backgroundColor: 'rgba(255, 255, 0, 0.45)' };
+      styles[moveFrom] = {
+        backgroundColor: 'rgba(234, 179, 8, 0.45)',
+        boxShadow: 'inset 0 0 0 2px rgba(234, 179, 8, 0.9)',
+      };
       try {
         const chess = new Chess(fen);
         const legalMoves = chess.moves({ square: moveFrom as any, verbose: true });
         legalMoves.forEach((m: any) => {
-          const isCapture = !!chess.get(m.to);
+          const isCapture = m.captured || m.flags.includes('c') || m.flags.includes('e') || !!chess.get(m.to);
           styles[m.to] = isCapture
-            ? { background: 'radial-gradient(circle, transparent 55%, rgba(34,197,94,0.55) 55%)' }
-            : { background: 'radial-gradient(circle, rgba(34,197,94,0.55) 28%, transparent 28%)' };
+            ? {
+                background: 'radial-gradient(circle, rgba(239, 68, 68, 0.45) 0%, rgba(220, 38, 38, 0.75) 100%)',
+                boxShadow: 'inset 0 0 0 3px rgba(239, 68, 68, 0.95)',
+                borderRadius: '6px',
+              }
+            : {
+                background: 'radial-gradient(circle, rgba(34, 197, 94, 0.75) 28%, transparent 28%)',
+              };
         });
       } catch { /* ignore */ }
     }

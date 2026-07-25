@@ -342,7 +342,7 @@ function App() {
     try {
       const chess = new Chess(boardFen);
       const moveObj = chess.move(moveUci);
-      if (moveObj && (moveObj.flags.includes('c') || moveObj.flags.includes('e'))) {
+      if (moveObj && (moveObj.captured || moveObj.flags.includes('c') || moveObj.flags.includes('e'))) {
         chessSounds.playCapture();
       } else {
         chessSounds.playMove();
