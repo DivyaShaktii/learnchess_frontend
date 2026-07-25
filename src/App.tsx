@@ -359,6 +359,7 @@ function App() {
       playMoveSoundForUci(fen, moveUci);
       const commitRes = await api.commitMove(gameId, moveUci);
       setFen(commitRes.fen);
+      previousFenRef.current = commitRes.fen;
       await refreshGameState(gameId);
 
       const label = commitRes.classification || 'Move';
@@ -401,6 +402,7 @@ function App() {
       playMoveSoundForUci(fen, moveUci);
       const commitRes = await api.commitMove(gameId, moveUci);
       setFen(commitRes.fen);
+      previousFenRef.current = commitRes.fen;
       await refreshGameState(gameId);
       resetWarningState();
     } catch (err) {
@@ -673,6 +675,7 @@ function App() {
                   moveCount={history.filter((_, i) => (playerColor === 'white' ? i % 2 === 0 : i % 2 === 1)).length + 1}
                   onCommitWarning={handleCommitWarning}
                   onDismissWarning={handleDismissWarning}
+                  onCloseOverlay={() => setOverlayVisible(false)}
                   onPlayAlternative={(moveIdentifier) => {
                     try {
                       const chess = new Chess(fen);

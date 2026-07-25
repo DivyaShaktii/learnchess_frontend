@@ -16,6 +16,7 @@ interface CoachOverlayProps {
   autoDismissSeconds?: number;
   onCommitWarning: () => void;
   onDismissWarning: () => void;
+  onCloseOverlay?: () => void;
   onPlayAlternative: (move: string) => void;
   onAskHint: () => void;
 }
@@ -32,6 +33,7 @@ export function CoachOverlay({
   autoDismissSeconds = 10,
   onCommitWarning,
   onDismissWarning,
+  onCloseOverlay,
   onPlayAlternative,
   onAskHint,
 }: CoachOverlayProps) {
@@ -100,11 +102,15 @@ export function CoachOverlay({
 
     if (!isBadMove) {
       const autoCloseTimer = setTimeout(() => {
-        onDismissWarning();
+        if (onCloseOverlay) {
+          onCloseOverlay();
+        } else {
+          onDismissWarning();
+        }
       }, 4000);
       return () => clearTimeout(autoCloseTimer);
     }
-  }, [visible, autoDismissSeconds, isBadMove, onDismissWarning]);
+  }, [visible, autoDismissSeconds, isBadMove, onDismissWarning, onCloseOverlay]);
 
   const handlePlayAnyway = useCallback(() => {
     onCommitWarning();
