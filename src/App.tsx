@@ -7,6 +7,7 @@ import { MoveLog } from './components/MoveLog';
 import { api } from './services/api';
 import type { MoveAlternative, ThreatPreview } from './services/api';
 import { getMoveSquares } from './utils/chessTranslator';
+import { chessSounds, speakCoachMessage } from './utils/soundEffects';
 
 export interface ToastProps {
   message: string;
@@ -45,7 +46,7 @@ function App() {
   const [gameMode, setGameMode] = useState<GameMode>('you_vs_robot');
   const [playerColor, setPlayerColor] = useState<'white' | 'black'>('white');
   const [learnerMode, setLearnerMode] = useState(true);
-  const [coachVoiceEnabled, setCoachVoiceEnabled] = useState(false);
+  const [coachVoiceEnabled, setCoachVoiceEnabled] = useState(true);
   const [gameId, setGameId] = useState<string | null>(null);
   const [fen, setFen] = useState(START_FEN);
   const [history, setHistory] = useState<MoveHistoryEntry[]>([]);
@@ -72,7 +73,9 @@ function App() {
     if (typeof window === 'undefined') return;
 
     const savedPreference = window.localStorage.getItem('coach-voice-enabled');
-    if (savedPreference === 'true') {
+    if (savedPreference === 'false') {
+      setCoachVoiceEnabled(false);
+    } else {
       setCoachVoiceEnabled(true);
     }
   }, []);
@@ -83,37 +86,17 @@ function App() {
   }, [coachVoiceEnabled]);
 
   useEffect(() => {
-    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
-
     if (!coachVoiceEnabled || !coachMessage || isThinking) {
-      window.speechSynthesis.cancel();
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
       return;
     }
 
     if (coachMessage === lastSpokenMessageRef.current) return;
 
-    const utterance = new SpeechSynthesisUtterance(coachMessage);
-    const availableVoices = window.speechSynthesis.getVoices();
-    const preferredVoice =
-      availableVoices.find((voice) => /en/i.test(voice.lang) && /female|zira|aria|samantha|google us english/i.test(voice.name)) ||
-      availableVoices.find((voice) => /en/i.test(voice.lang)) ||
-      availableVoices[0];
-
-    if (preferredVoice) {
-      utterance.voice = preferredVoice;
-    }
-
-    utterance.rate = 1;
-    utterance.pitch = 1;
-    utterance.volume = 1;
-
     lastSpokenMessageRef.current = coachMessage;
-    window.speechSynthesis.cancel();
-    window.speechSynthesis.speak(utterance);
-
-    return () => {
-      window.speechSynthesis.cancel();
-    };
+    speakCoachMessage(coachMessage);
   }, [coachMessage, coachVoiceEnabled, isThinking]);
 
   const isPlayerTurn = useMemo(() => {
@@ -250,6 +233,8 @@ function App() {
 
     if (!move) return false;
 
+    playMoveSoundForUci(fen, move.from + move.to + (move.promotion || ''));
+
     const moveUci = move.from + move.to + (move.promotion || '');
     const nextFen = chess.fen();
 
@@ -352,10 +337,25 @@ function App() {
     }
   };
 
+  const playMoveSoundForUci = (boardFen: string, moveUci: string) => {
+    try {
+      const chess = new Chess(boardFen);
+      const moveObj = chess.move(moveUci);
+      if (moveObj && (moveObj.flags.includes('c') || moveObj.flags.includes('e'))) {
+        chessSounds.playCapture();
+      } else {
+        chessSounds.playMove();
+      }
+    } catch {
+      chessSounds.playMove();
+    }
+  };
+
   const commitAndFinalize = async (moveUci: string) => {
     if (!gameId) return;
 
     try {
+      playMoveSoundForUci(fen, moveUci);
       const commitRes = await api.commitMove(gameId, moveUci);
       setFen(commitRes.fen);
       await refreshGameState(gameId);
@@ -397,6 +397,7 @@ function App() {
     if (!gameId) return;
 
     try {
+      playMoveSoundForUci(fen, moveUci);
       const commitRes = await api.commitMove(gameId, moveUci);
       setFen(commitRes.fen);
       await refreshGameState(gameId);
@@ -404,7 +405,7 @@ function App() {
     } catch (err) {
       handleError(err);
     }
-  }, [gameId, refreshGameState]);
+  }, [gameId, fen, refreshGameState]);
 
   const playRobotMove = useCallback(async () => {
     if (!gameId) return;
