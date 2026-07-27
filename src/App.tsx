@@ -417,7 +417,15 @@ function App() {
       setWarningActive(false);
 
       if (commitRes.is_game_over) {
-        setCoachMessage(`Game over! ${commitRes.result || ''}`);
+        const chess = new Chess(commitRes.fen);
+        let msg = '🏁 Game Over!';
+        if (chess.isCheckmate()) {
+          const winner = chess.turn() === 'w' ? 'Black' : 'White';
+          msg = `🏆 Checkmate! ${winner} wins the game!`;
+        } else if (chess.isDraw()) {
+          msg = '🤝 Game Over! The game ended in a draw.';
+        }
+        setCoachMessage(msg);
         setOverlayVisible(true);
       }
     } catch (err) {
@@ -437,6 +445,19 @@ function App() {
       previousFenRef.current = commitRes.fen;
       await refreshGameState(gameId);
       resetWarningState();
+
+      if (commitRes.is_game_over) {
+        const chess = new Chess(commitRes.fen);
+        let msg = '🏁 Game Over!';
+        if (chess.isCheckmate()) {
+          const winner = chess.turn() === 'w' ? 'Black' : 'White';
+          msg = `🏆 Checkmate! ${winner} wins the game!`;
+        } else if (chess.isDraw()) {
+          msg = '🤝 Game Over! The game ended in a draw.';
+        }
+        setCoachMessage(msg);
+        setOverlayVisible(true);
+      }
     } catch (err) {
       handleError(err);
     }
@@ -520,6 +541,21 @@ function App() {
 
   const handleIllegalMove = (reason: 'pinned' | 'not_your_turn' | 'blocked') => {
     if (reason === 'not_your_turn') {
+      try {
+        const chess = new Chess(fen);
+        if (chess.isGameOver()) {
+          if (chess.isCheckmate()) {
+            const winner = chess.turn() === 'w' ? 'Black' : 'White';
+            setToastMessage(`🏆 Game Over! Checkmate — ${winner} wins.`);
+          } else if (chess.isDraw()) {
+            setToastMessage('🤝 Game Over! The game ended in a draw.');
+          } else {
+            setToastMessage('🏁 Game Over!');
+          }
+          return;
+        }
+      } catch {}
+
       if (isRobotThinking) {
         setToastMessage('🤖 Wait — the robot is currently taking its turn.');
       } else if (isThinking) {
