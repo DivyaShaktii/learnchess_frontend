@@ -143,11 +143,29 @@ function App() {
 
   const handleError = (err: any) => {
     console.error(err);
-    if (err.status === 404) {
-      setToastMessage('Game session lost. Starting a new game.');
-      void startNewGame();
-    } else if (err.status !== 400) {
-      setToastMessage('Coach is unreachable - check the backend is running');
+    if (err?.status === 404) {
+      // Game session lost on backend — restart silently, no recursive error handling
+      setToastMessage('Session lost. Starting a new game...');
+      // Use a fresh async block so startNewGame errors don't recurse into handleError
+      void (async () => {
+        try {
+          setIsThinking(false);
+          setIsRobotThinking(false);
+          setCoachMessage('');
+          setSquareSuggestions([]);
+          lastSpokenMessageRef.current = '';
+          const res = await api.startNewGame();
+          setGameId(res.game_id);
+          setFen(res.fen);
+          setHistory([]);
+          resetWarningState();
+          previousFenRef.current = res.fen;
+        } catch {
+          setToastMessage('Coach is unreachable — check the backend is running');
+        }
+      })();
+    } else if (err?.status !== 400) {
+      setToastMessage('Coach is unreachable — check the backend is running');
     }
   };
 
@@ -208,7 +226,9 @@ function App() {
         setCoachMessage(`Game over! ${state.result || ''}`);
       }
     } catch (err) {
-      handleError(err);
+      // Don't call handleError here — a transient state-fetch failure
+      // should not restart the game or show a disruptive toast.
+      console.warn('refreshGameState failed (non-fatal):', err);
     }
   }, []);
 
