@@ -581,10 +581,14 @@ function App() {
   }, [fen, warningActive]);
 
   const boardArrows = useMemo<[string, string, string][]>(() => {
-    // 1. Follow-up arrows requested by user via "Show Follow Up Moves" button (always active)
+    // 1. Follow-up arrows requested by user via "Show Follow Up Moves" button (ALWAYS visible when pressed)
     if (followUpArrows.length > 0) return followUpArrows;
 
-    // 2. Warning threat/alternative arrows when Coach warning modal is active (always active)
+    // If Learner Mode is OFF, suppress all automatic arrows.
+    // Arrows will only appear when the user explicitly clicks "Show Follow Up Moves".
+    if (!learnerMode) return [];
+
+    // 2. Warning threat/alternative arrows (shown automatically ONLY when Learner Mode is ON)
     if (warningActive) {
       const arrows: [string, string, string][] = [];
       if (threat?.opponent_best_reply_san) {
@@ -599,9 +603,7 @@ function App() {
       return arrows;
     }
 
-    // 3. Piece selection hint arrows — ONLY shown when Learner Mode is ON
-    if (!learnerMode) return [];
-
+    // 3. Piece selection hint arrows (shown ONLY when Learner Mode is ON)
     const arrows: [string, string, string][] = [];
     if (squareSuggestions.length > 0) {
       squareSuggestions.forEach((alt, idx) => {
