@@ -114,9 +114,39 @@ function App() {
     }
   }, [fen, gameMode, playerColor, isRobotThinking]);
 
+  const [isConnecting, setIsConnecting] = useState(false);
+
   useEffect(() => {
-    void startNewGame();
+    let cancelled = false;
+    const tryStart = async (attemptsLeft: number) => {
+      setIsConnecting(true);
+      try {
+        const res = await api.startNewGame();
+        if (!cancelled) {
+          setGameId(res.game_id);
+          setFen(res.fen);
+          setHistory([]);
+          resetWarningState();
+          previousFenRef.current = res.fen;
+        }
+      } catch {
+        if (!cancelled && attemptsLeft > 1) {
+          // Backend might still be warming up — retry after 2 s
+          setTimeout(() => { if (!cancelled) void tryStart(attemptsLeft - 1); }, 2000);
+          return;
+        }
+        if (!cancelled) {
+          setToastMessage('Coach is unreachable — check the backend is running');
+        }
+      } finally {
+        if (!cancelled) setIsConnecting(false);
+      }
+    };
+    void tryStart(3);
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
 
   // oxlint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
@@ -663,6 +693,33 @@ function App() {
               height: 'min(calc(100vh - 44px - 8px), calc(100vw - 380px - 8px))',
             }}
           >
+            {/* Backend connection overlay — shown when game hasn't started yet */}
+            {!gameId && (
+              <div
+                className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-4 rounded"
+                style={{ background: 'rgba(0,0,0,0.82)', backdropFilter: 'blur(4px)' }}
+              >
+                {isConnecting ? (
+                  <>
+                    <div className="h-10 w-10 animate-spin rounded-full border-4 border-zinc-600 border-t-cyan-400" />
+                    <p className="text-sm font-semibold text-zinc-300">Connecting to coach backend...</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-2xl">⚠️</p>
+                    <p className="text-sm font-semibold text-red-300">Backend unreachable</p>
+                    <p className="text-xs text-zinc-500">Make sure the backend is running on port 8000</p>
+                    <button
+                      onClick={() => void startNewGame()}
+                      className="mt-2 rounded-full bg-cyan-600 px-5 py-2 text-sm font-bold text-white transition hover:bg-cyan-500"
+                    >
+                      🔄 Retry Connection
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+
             {(isRobotThinking || isThinking) && (
               <div
                 className="absolute top-3 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2.5 rounded-full px-4 py-1.5 text-sm font-semibold shadow-lg"
