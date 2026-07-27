@@ -12,6 +12,7 @@ interface ChessBoardAreaProps {
   customArrows?: [string, string, string][];
   isPlayerTurn?: boolean;
   badMoveSquare?: string | null;
+  hintSquare?: string | null;
   overlay?: React.ReactNode;
 }
 
@@ -24,6 +25,7 @@ export function ChessBoardArea({
   customArrows = [],
   isPlayerTurn = true,
   badMoveSquare,
+  hintSquare,
   overlay,
 }: ChessBoardAreaProps) {
   const [moveFrom, setMoveFrom] = useState<string | null>(null);
@@ -136,6 +138,14 @@ export function ChessBoardArea({
       };
     }
 
+    if (hintSquare) {
+      styles[hintSquare] = {
+        backgroundColor: 'rgba(249, 115, 22, 0.55)',
+        boxShadow: 'inset 0 0 0 3px rgba(234, 88, 12, 0.95)',
+        borderRadius: '4px',
+      };
+    }
+
     // Illegal-move flash: briefly highlight the target square in orange-red
     if (illegalFlashSquare) {
       styles[illegalFlashSquare] = {
@@ -147,7 +157,8 @@ export function ChessBoardArea({
     }
 
     return styles;
-  }, [moveFrom, fen, badMoveSquare, illegalFlashSquare]);
+  }, [moveFrom, fen, badMoveSquare, hintSquare, illegalFlashSquare]);
+
 
   // Original dark/light gray squares
   const darkSquareStyle = useMemo(() => ({ backgroundColor: '#4a4a4a' }), []);

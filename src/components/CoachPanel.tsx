@@ -10,7 +10,7 @@ interface CoachPanelProps {
   persona: Persona;
   isThinking: boolean;
   warningActive: boolean;
-  coachMessage: string;
+  coachMessage?: string;
   classification?: string;
   threat?: ThreatPreview | null;
   alternatives?: MoveAlternative[];
@@ -26,7 +26,6 @@ export function CoachPanel({
   persona,
   isThinking,
   warningActive,
-  coachMessage,
   classification,
   threat,
   alternatives,
@@ -60,7 +59,6 @@ export function CoachPanel({
       <div className="shrink-0 mb-2">
         <SpeechBubble 
           persona={persona} 
-          message={coachMessage} 
           isThinking={isThinking} 
           classification={classification}
         />

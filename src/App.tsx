@@ -7,7 +7,8 @@ import { MoveLog } from './components/MoveLog';
 import { api } from './services/api';
 import type { MoveAlternative, ThreatPreview } from './services/api';
 import { getMoveSquares } from './utils/chessTranslator';
-import { chessSounds, speakCoachMessage } from './utils/soundEffects';
+import { chessSounds } from './utils/soundEffects';
+import { speakMoveCategory } from './utils/coachVoice';
 
 export interface ToastProps {
   message: string;
@@ -61,6 +62,7 @@ function App() {
   const [pendingMoveUci, setPendingMoveUci] = useState<string | null>(null);
   const [pendingFen, setPendingFen] = useState<string | null>(null);
   const [badMoveSquare, setBadMoveSquare] = useState<string | null>(null);
+  const [hintSquare, setHintSquare] = useState<string | null>(null);
   const [classification, setClassification] = useState<string | undefined>();
   const [threat, setThreat] = useState<ThreatPreview | null>(null);
   const [alternatives, setAlternatives] = useState<MoveAlternative[]>([]);
@@ -86,18 +88,10 @@ function App() {
   }, [coachVoiceEnabled]);
 
   useEffect(() => {
-    if (!coachVoiceEnabled || !coachMessage || isThinking) {
-      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-        window.speechSynthesis.cancel();
-      }
-      return;
+    if (!coachVoiceEnabled && typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
     }
-
-    if (coachMessage === lastSpokenMessageRef.current) return;
-
-    lastSpokenMessageRef.current = coachMessage;
-    speakCoachMessage(coachMessage);
-  }, [coachMessage, coachVoiceEnabled, isThinking]);
+  }, [coachVoiceEnabled]);
 
   const isPlayerTurn = useMemo(() => {
     try {
@@ -180,6 +174,8 @@ function App() {
     setPendingMoveUci(null);
     setPendingFen(null);
     setBadMoveSquare(null);
+    setHintSquare(null);
+    setBoardArrows([]);
     setClassification(undefined);
     setThreat(null);
     setAlternatives([]);
@@ -245,8 +241,14 @@ function App() {
         setIsThinking(true);
         setSquareSuggestions([]);
         setCoachMessage('Analysing...');
+        setHintSquare(null);
+        setBoardArrows([]);
 
         const preRes = await api.precheckMove(gameId, moveUci);
+        if (coachVoiceEnabled) {
+          speakMoveCategory(preRes.label);
+        }
+
         const label = preRes.label || 'Move';
         const labelMap: Record<string, string> = {
           Brilliant: 'Brilliant',
@@ -267,37 +269,11 @@ function App() {
         setPendingFen(nextFen);
         setThreat(preRes.threat_preview);
         setAlternatives(preRes.top_alternatives ?? []);
+        setCoachMessage('');
 
-        const isBadMove = ['Blunder', 'Mistake', 'Inaccuracy', 'Worst Move'].includes(cleanLabel);
-        const topAlternative = preRes.top_alternatives?.[0];
+        const isBoxTier = Boolean(preRes.is_box_tier);
 
-        const playerMoveCount = history.filter((_, i) => (playerColor === 'white' ? i % 2 === 0 : i % 2 === 1)).length + 1;
-        let customMsg = '';
-
-        if (isBadMove) {
-          if (playerMoveCount <= 5) {
-            customMsg = 'Watch your move — try building your center first.';
-          } else if (preRes.threat_preview?.opponent_best_reply_san) {
-            customMsg = `Watch out, ${preRes.threat_preview.opponent_best_reply_san} is a reply to watch.`;
-          } else if (topAlternative?.san) {
-            customMsg = `${topAlternative.san} was the stronger move here.`;
-          } else {
-            customMsg = `${cleanLabel} move. Careful with this position.`;
-          }
-        } else {
-          const msgs: Record<string, string> = {
-            Brilliant: 'Brilliant move! You found the top idea.',
-            Best: 'Best move. Keep going.',
-            Excellent: 'Strong move. Your position improves.',
-            Good: 'Solid move. No issues here.',
-            Book: 'Book move. You are still in theory.',
-          };
-          customMsg = msgs[cleanLabel] || `${cleanLabel} move.`;
-        }
-
-        setCoachMessage(customMsg);
-
-        if (isBadMove) {
+        if (isBoxTier) {
           setBadMoveSquare(move.to);
           setWarningActive(true);
           setOverlayVisible(true);
@@ -306,9 +282,9 @@ function App() {
         }
 
         setBadMoveSquare(null);
+        setOverlayVisible(false);
         // Keep isThinking=true — commitAndFinalize's finally block clears it.
         // This prevents the robot from firing before the player's move is committed.
-        setOverlayVisible(true);
         await commitAndFinalize(moveUci);
       } catch (error) {
         console.error('Error in handleMoveAttempt:', error);
@@ -381,7 +357,7 @@ function App() {
       const cleanLabel = labelMap[label] || label;
       setClassification(cleanLabel);
 
-      setOverlayVisible(true);
+      setOverlayVisible(false);
       setPendingMoveUci(null);
       setPendingFen(null);
       setWarningActive(false);
@@ -421,7 +397,10 @@ function App() {
       const res = await api.getBestMoves(gameId, 1);
       if (res.moves && res.moves.length > 0) {
         const moveUci = res.moves[0].move;
-        if (moveUci) await executeCommit(moveUci, currentFen);
+        if (moveUci) {
+          await new Promise((resolve) => setTimeout(resolve, 900));
+          await executeCommit(moveUci, currentFen);
+        }
       }
     } catch (err) {
       handleError(err);
@@ -455,33 +434,20 @@ function App() {
     setIsThinking(false);
   };
 
-  const handleAskHint = async () => {
-    if (!gameId) return;
-
-    setIsThinking(true);
-    try {
-      const res = await api.getBestMoves(gameId, 3);
-      setCoachMessage('Here are some strong ideas.');
-      setWarningActive(true);
-      setOverlayVisible(true);
-      setClassification('Best');
-      setThreat(null);
-      setAlternatives(
-        res.moves.map((m: any) => ({
-          move: m.move,
-          san: m.san,
-          score_cp: m.score_cp,
-          is_mate: m.is_mate,
-          mate_in: m.mate_in,
-          pv: m.pv ?? [],
-        })) as MoveAlternative[],
-      );
-      setPendingMoveUci(null);
-    } catch (err) {
-      handleError(err);
-    } finally {
-      setIsThinking(false);
+  const handleAskHint = () => {
+    const bestMove = alternatives?.[0]?.move;
+    if (bestMove) {
+      setHintSquare(bestMove.slice(0, 2));
     }
+  };
+
+  const handleShowFollowUp = () => {
+    const arrowColors = ['#22c55e', '#eab308', '#ef4444']; // green, amber, red — 1st/2nd/3rd choice
+    const arrows = (alternatives ?? [])
+      .slice(0, 3)
+      .filter((alt) => alt.move)
+      .map((alt, i) => [alt.move!.slice(0, 2), alt.move!.slice(2, 4), arrowColors[i]] as [string, string, string]);
+    setBoardArrows(arrows);
   };
 
   const handlePieceSelect = async (square: string | null) => {
@@ -701,11 +667,11 @@ function App() {
               customArrows={boardArrows}
               isPlayerTurn={isPlayerTurn}
               badMoveSquare={badMoveSquare}
+              hintSquare={hintSquare}
               overlay={
                 <CoachOverlay
                   visible={overlayVisible}
                   isThinking={isThinking}
-                  coachMessage={coachMessage}
                   classification={classification}
                   threat={threat}
                   alternatives={alternatives}
@@ -714,18 +680,8 @@ function App() {
                   onCommitWarning={handleCommitWarning}
                   onDismissWarning={handleDismissWarning}
                   onCloseOverlay={() => setOverlayVisible(false)}
-                  onPlayAlternative={(moveIdentifier) => {
-                    try {
-                      const chess = new Chess(fen);
-                      const parsedMove = chess.move(moveIdentifier);
-                      if (parsedMove) {
-                        void handlePlayAlternative(parsedMove.from + parsedMove.to + (parsedMove.promotion || ''));
-                        return;
-                      }
-                    } catch {}
-                    void handlePlayAlternative(moveIdentifier);
-                  }}
                   onAskHint={handleAskHint}
+                  onShowFollowUp={handleShowFollowUp}
                 />
               }
             />

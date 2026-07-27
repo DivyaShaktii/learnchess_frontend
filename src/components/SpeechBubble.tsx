@@ -4,7 +4,6 @@ export type Persona = 'robot' | 'owl' | 'friend';
 
 interface SpeechBubbleProps {
   persona: Persona;
-  message: string;
   classification?: string;
   isThinking?: boolean;
 }
@@ -24,7 +23,7 @@ const getClassificationColor = (classification?: string) => {
   }
 };
 
-export function SpeechBubble({ message, classification, isThinking }: SpeechBubbleProps) {
+export function SpeechBubble({ classification, isThinking }: SpeechBubbleProps) {
   const borderClass = getClassificationColor(classification);
 
   return (
@@ -41,11 +40,7 @@ export function SpeechBubble({ message, classification, isThinking }: SpeechBubb
             <div className="w-2 h-2 rounded-full bg-zinc-500 animate-bounce" style={{ animationDelay: '150ms' }} />
             <div className="w-2 h-2 rounded-full bg-zinc-500 animate-bounce" style={{ animationDelay: '300ms' }} />
           </div>
-        ) : (
-          <div className="text-zinc-100 text-base leading-relaxed">
-            {message || "Make a move! I'll let you know what I think."}
-          </div>
-        )}
+        ) : null}
       </div>
     </div>
   );

@@ -29,6 +29,7 @@ export interface PreMoveCheckResponse {
   top_alternatives: MoveAlternative[];
   threat_preview: ThreatPreview | null;
   should_warn: boolean;
+  is_box_tier: boolean;
   warning_message: string;
 }
 
