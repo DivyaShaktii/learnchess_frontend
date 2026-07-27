@@ -25,22 +25,34 @@ export function speakMoveCategory(label: string): void {
     window.speechSynthesis.cancel();
 
     const utterance = new SpeechSynthesisUtterance(line);
-    const voices = window.speechSynthesis.getVoices();
-
-    const preferredVoice =
-      voices.find((v) => /en/i.test(v.lang) && /natural|aria|google us english|zira|samantha/i.test(v.name)) ||
-      voices.find((v) => /en/i.test(v.lang)) ||
-      voices[0];
-
-    if (preferredVoice) {
-      utterance.voice = preferredVoice;
-    }
-
     utterance.rate = 1.0;
     utterance.pitch = 1.0;
     utterance.volume = 1.0;
 
-    window.speechSynthesis.speak(utterance);
+    const pickVoiceAndSpeak = () => {
+      const voices = window.speechSynthesis.getVoices();
+      const preferredVoice =
+        voices.find((v) => /en/i.test(v.lang) && /natural|aria|google us english|zira|samantha/i.test(v.name)) ||
+        voices.find((v) => /en/i.test(v.lang)) ||
+        voices[0];
+
+      if (preferredVoice) {
+        utterance.voice = preferredVoice;
+      }
+      window.speechSynthesis.speak(utterance);
+    };
+
+    const voices = window.speechSynthesis.getVoices();
+    if (voices.length > 0) {
+      // Voices already loaded (Chrome after first load, Firefox always)
+      pickVoiceAndSpeak();
+    } else {
+      // First call in Chrome — wait for voices to load then speak
+      window.speechSynthesis.onvoiceschanged = () => {
+        window.speechSynthesis.onvoiceschanged = null;
+        pickVoiceAndSpeak();
+      };
+    }
   } catch {
     // Audio fallback gracefully handled
   }

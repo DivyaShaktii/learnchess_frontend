@@ -67,6 +67,7 @@ function App() {
   const [threat, setThreat] = useState<ThreatPreview | null>(null);
   const [alternatives, setAlternatives] = useState<MoveAlternative[]>([]);
   const [squareSuggestions, setSquareSuggestions] = useState<MoveAlternative[]>([]);
+  const [followUpArrows, setFollowUpArrows] = useState<[string, string, string][]>([]);
 
   const previousFenRef = useRef(START_FEN);
   const lastSpokenMessageRef = useRef('');
@@ -175,7 +176,7 @@ function App() {
     setPendingFen(null);
     setBadMoveSquare(null);
     setHintSquare(null);
-    setBoardArrows([]);
+    setFollowUpArrows([]);
     setClassification(undefined);
     setThreat(null);
     setAlternatives([]);
@@ -448,7 +449,7 @@ function App() {
       .slice(0, 3)
       .filter((alt) => alt.move)
       .map((alt, i) => [alt.move!.slice(0, 2), alt.move!.slice(2, 4), arrowColors[i]] as [string, string, string]);
-    setBoardArrows(arrows);
+    setFollowUpArrows(arrows);
   };
 
   const handlePieceSelect = async (square: string | null) => {
@@ -477,14 +478,12 @@ function App() {
       return;
     }
 
+    // Pinned/blocked: show a brief toast only — do NOT open the blunder overlay
     if (reason === 'pinned') {
-      setCoachMessage(
-        '🔒 That piece is pinned! Moving it would expose your king to check. Choose a different piece.'
-      );
+      setToastMessage('🔒 That piece is pinned — moving it would expose your king!');
     } else {
-      setCoachMessage('That square is not a legal move for this piece.');
+      setToastMessage('That square is not a legal destination for this piece.');
     }
-    setOverlayVisible(true);
   };
 
   useEffect(() => {
@@ -495,6 +494,9 @@ function App() {
 
   const boardArrows = useMemo<[string, string, string][]>(() => {
     if (!learnerMode) return [];
+
+    // Follow-up arrows take priority (set by handleShowFollowUp)
+    if (followUpArrows.length > 0) return followUpArrows;
 
     const arrows: [string, string, string][] = [];
 
@@ -519,7 +521,7 @@ function App() {
     }
 
     return arrows;
-  }, [warningActive, learnerMode, squareSuggestions, threat, alternatives, fen]);
+  }, [followUpArrows, warningActive, learnerMode, squareSuggestions, threat, alternatives, fen]);
 
   return (
     <div
