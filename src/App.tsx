@@ -298,9 +298,6 @@ function App() {
         setFollowUpArrows([]);
 
         const preRes = await api.precheckMove(gameId, moveUci);
-        if (coachVoiceEnabled) {
-          speakMoveCategory(preRes.label);
-        }
 
         const label = preRes.label || 'Move';
         const labelMap: Record<string, string> = {
@@ -327,6 +324,9 @@ function App() {
         const isBoxTier = Boolean(preRes.is_box_tier);
 
         if (isBoxTier) {
+          if (coachVoiceEnabled) {
+            speakMoveCategory(preRes.label);
+          }
           setBadMoveSquare(move.to);
           setWarningActive(true);
           setOverlayVisible(true);
@@ -410,6 +410,9 @@ function App() {
       };
       const cleanLabel = labelMap[label] || label;
       setClassification(cleanLabel);
+      if (coachVoiceEnabled) {
+        speakMoveCategory(cleanLabel);
+      }
 
       setOverlayVisible(false);
       setPendingMoveUci(null);
