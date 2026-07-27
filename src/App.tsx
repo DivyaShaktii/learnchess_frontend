@@ -177,7 +177,6 @@ function App() {
     if (err?.status === 404) {
       // Game session lost on backend — restart silently, no recursive error handling
       setToastMessage('Session lost. Starting a new game...');
-      // Use a fresh async block so startNewGame errors don't recurse into handleError
       void (async () => {
         try {
           setIsThinking(false);
@@ -196,7 +195,7 @@ function App() {
           setToastMessage('Coach is unreachable — check the backend is running');
         }
       })();
-    } else if (err?.status !== 400) {
+    } else if (err?.name === 'ApiError' || err?.message?.includes('Failed to fetch') || err?.message?.includes('NetworkError')) {
       setToastMessage('Coach is unreachable — check the backend is running');
     }
   };
@@ -296,7 +295,7 @@ function App() {
         setSquareSuggestions([]);
         setCoachMessage('Analysing...');
         setHintSquare(null);
-        setBoardArrows([]);
+        setFollowUpArrows([]);
 
         const preRes = await api.precheckMove(gameId, moveUci);
         if (coachVoiceEnabled) {
