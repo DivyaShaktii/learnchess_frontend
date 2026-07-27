@@ -128,6 +128,7 @@ function App() {
           setHistory([]);
           resetWarningState();
           previousFenRef.current = res.fen;
+          setToastMessage(null);
         }
       } catch {
         if (!cancelled && attemptsLeft > 1) {
@@ -190,6 +191,7 @@ function App() {
           setHistory([]);
           resetWarningState();
           previousFenRef.current = res.fen;
+          setToastMessage(null);
         } catch {
           setToastMessage('Coach is unreachable — check the backend is running');
         }
@@ -212,6 +214,7 @@ function App() {
       setHistory([]);
       resetWarningState();
       previousFenRef.current = res.fen;
+      setToastMessage(null);
     } catch (err) {
       handleError(err);
     }
