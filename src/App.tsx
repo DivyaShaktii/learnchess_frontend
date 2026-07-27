@@ -289,8 +289,9 @@ function App() {
       } catch (error) {
         console.error('Error in handleMoveAttempt:', error);
         setIsThinking(false);
-        setOverlayVisible(true);
-        setWarningActive(true);
+        setOverlayVisible(false);
+        setWarningActive(false);
+        handleError(error);
       }
     })();
 
