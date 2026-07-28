@@ -89,11 +89,11 @@ async function fetchWithCheck(url: string, options?: RequestInit) {
 }
 
 export const api = {
-  async startNewGame(startingFen?: string): Promise<StartGameResponse> {
+  async startNewGame(startingFen?: string, opponentRating?: number): Promise<StartGameResponse> {
     return fetchWithCheck(`${API_BASE}/api/game/new`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ starting_fen: startingFen }),
+      body: JSON.stringify({ starting_fen: startingFen, opponent_rating: opponentRating }),
     });
   },
 
@@ -123,5 +123,9 @@ export const api = {
 
   async getBestMoves(gameId: string, n: number = 3): Promise<BestMovesResponse> {
     return fetchWithCheck(`${API_BASE}/api/engine/best-moves/${gameId}?n=${n}`);
+  },
+
+  async getRobotMove(gameId: string): Promise<BestMovesResponse> {
+    return fetchWithCheck(`${API_BASE}/api/engine/robot-move/${gameId}`);
   },
 };

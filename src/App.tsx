@@ -41,7 +41,9 @@ type MoveHistoryEntry = {
   fen_before?: string;
 };
 
-const START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+const ratingTier = (r: number) =>
+  r < 1500 ? 'Beginner' : r < 1900 ? 'Club Player' : r < 2300 ? 'Strong Club Player' :
+  r < 2600 ? 'Expert' : r < 2900 ? 'Master' : 'Near-Maximum (very hard)';
 
 function App() {
   const [gameMode, setGameMode] = useState<GameMode>('you_vs_robot');
@@ -49,6 +51,7 @@ function App() {
   const [learnerMode, setLearnerMode] = useState(true);
   const [coachVoiceEnabled, setCoachVoiceEnabled] = useState(true);
   const [gameId, setGameId] = useState<string | null>(null);
+  const [opponentRating, setOpponentRating] = useState(1500);
   const [fen, setFen] = useState(START_FEN);
   const [history, setHistory] = useState<MoveHistoryEntry[]>([]);
 
@@ -121,7 +124,7 @@ function App() {
     const tryStart = async (attemptsLeft: number) => {
       setIsConnecting(true);
       try {
-        const res = await api.startNewGame();
+        const res = await api.startNewGame(undefined, opponentRating);
         if (!cancelled) {
           setGameId(res.game_id);
           setFen(res.fen);
@@ -184,7 +187,7 @@ function App() {
           setCoachMessage('');
           setSquareSuggestions([]);
           lastSpokenMessageRef.current = '';
-          const res = await api.startNewGame();
+          const res = await api.startNewGame(undefined, opponentRating);
           setGameId(res.game_id);
           setFen(res.fen);
           setHistory([]);
@@ -207,7 +210,7 @@ function App() {
       setCoachMessage('');
       setSquareSuggestions([]);
       lastSpokenMessageRef.current = '';
-      const res = await api.startNewGame();
+      const res = await api.startNewGame(undefined, opponentRating);
       setGameId(res.game_id);
       setFen(res.fen);
       setHistory([]);
@@ -472,7 +475,7 @@ function App() {
     setIsRobotThinking(true);
     try {
       const currentFen = fen;
-      const res = await api.getBestMoves(gameId, 1);
+      const res = await api.getRobotMove(gameId);
       if (res.moves && res.moves.length > 0) {
         const moveUci = res.moves[0].move;
         if (moveUci) {
@@ -669,6 +672,25 @@ function App() {
                   </span>
                 </label>
               ))}
+            </div>
+          )}
+
+          {gameMode !== 'you_vs_friend' && (
+            <div className="flex items-center gap-2 border-l border-zinc-800 pl-4">
+              <span className="text-xs text-zinc-400 font-medium whitespace-nowrap">
+                Rating: <strong className="text-emerald-400">{opponentRating} Elo</strong> ({ratingTier(opponentRating)})
+              </span>
+              <input
+                type="range"
+                min={1320}
+                max={3190}
+                step={10}
+                value={opponentRating}
+                onChange={(e) => setOpponentRating(Number(e.target.value))}
+                onMouseUp={() => void startNewGame()}
+                onTouchEnd={() => void startNewGame()}
+                className="w-28 cursor-pointer accent-emerald-500"
+              />
             </div>
           )}
 
