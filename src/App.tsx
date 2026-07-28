@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Chess } from 'chess.js';
-import { AlertCircle, X, RefreshCcw } from 'lucide-react';
+import { AlertCircle, X, RefreshCcw, Maximize2, Minimize2 } from 'lucide-react';
 import { ChessBoardArea } from './components/ChessBoardArea';
 import { CoachOverlay } from './components/CoachOverlay';
 import { MoveLog } from './components/MoveLog';
@@ -8,7 +8,7 @@ import { api } from './services/api';
 import type { MoveAlternative, ThreatPreview } from './services/api';
 import { getMoveSquares } from './utils/chessTranslator';
 import { chessSounds } from './utils/soundEffects';
-import { speakMoveCategory } from './utils/coachVoice';
+import { speakMoveCategory, speakRatingAnnouncement } from './utils/coachVoice';
 
 export interface ToastProps {
   message: string;
@@ -41,6 +41,8 @@ type MoveHistoryEntry = {
   fen_before?: string;
 };
 
+const START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+
 const ratingTier = (r: number) =>
   r < 1500 ? 'Beginner' : r < 1900 ? 'Club Player' : r < 2300 ? 'Strong Club Player' :
   r < 2600 ? 'Expert' : r < 2900 ? 'Master' : 'Near-Maximum (very hard)';
@@ -54,6 +56,23 @@ function App() {
   const [opponentRating, setOpponentRating] = useState(1500);
   const [fen, setFen] = useState(START_FEN);
   const [history, setHistory] = useState<MoveHistoryEntry[]>([]);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  useEffect(() => {
+    const onFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
+  }, []);
+
+  const toggleFullscreen = useCallback(() => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(() => {});
+    } else {
+      document.exitFullscreen().catch(() => {});
+    }
+  }, []);
 
   const [isThinking, setIsThinking] = useState(false);
   const [isRobotThinking, setIsRobotThinking] = useState(false);
@@ -132,6 +151,9 @@ function App() {
           resetWarningState();
           previousFenRef.current = res.fen;
           setToastMessage(null);
+          if (coachVoiceEnabled) {
+            speakRatingAnnouncement(opponentRating, ratingTier(opponentRating));
+          }
         }
       } catch {
         if (!cancelled && attemptsLeft > 1) {
@@ -194,6 +216,9 @@ function App() {
           resetWarningState();
           previousFenRef.current = res.fen;
           setToastMessage(null);
+          if (coachVoiceEnabled) {
+            speakRatingAnnouncement(opponentRating, ratingTier(opponentRating));
+          }
         } catch {
           setToastMessage('Coach is unreachable — check the backend is running');
         }
@@ -217,6 +242,9 @@ function App() {
       resetWarningState();
       previousFenRef.current = res.fen;
       setToastMessage(null);
+      if (coachVoiceEnabled) {
+        speakRatingAnnouncement(opponentRating, ratingTier(opponentRating));
+      }
     } catch (err) {
       handleError(err);
     }
@@ -636,24 +664,30 @@ function App() {
         style={{ height: '44px', background: '#111' }}
       >
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <select
-              value={gameMode}
-              onChange={(e) => {
-                setGameMode(e.target.value as GameMode);
-                void startNewGame();
-              }}
-              className="cursor-pointer bg-transparent text-sm font-bold text-zinc-100 outline-none"
-              style={{ appearance: 'auto' }}
-            >
-              <option value="you_vs_robot" className="bg-zinc-900">You Vs Robot</option>
-              <option value="robot_vs_robot" className="bg-zinc-900">Robot Vs Robot</option>
-              <option value="you_vs_friend" className="bg-zinc-900">You Vs Friend</option>
-            </select>
+          <div className="flex flex-col justify-center gap-0.5">
+            <div className="flex items-center gap-1.5 text-xs font-bold text-zinc-100">
+              <span className="cursor-default">You Vs Robot</span>
+            </div>
+            <div className="flex items-center gap-1.5 pl-2 border-l border-emerald-500/40">
+              <span className="text-[10px] text-zinc-400 font-medium whitespace-nowrap">
+                Rating: <strong className="text-emerald-400">{opponentRating}</strong> ({ratingTier(opponentRating)})
+              </span>
+              <input
+                type="range"
+                min={1320}
+                max={3190}
+                step={10}
+                value={opponentRating}
+                onChange={(e) => setOpponentRating(Number(e.target.value))}
+                onMouseUp={() => void startNewGame()}
+                onTouchEnd={() => void startNewGame()}
+                className="w-24 cursor-pointer accent-emerald-500"
+              />
+            </div>
           </div>
 
           {gameMode === 'you_vs_robot' && (
-            <div className="flex items-center gap-3 text-sm">
+            <div className="flex items-center gap-3 text-sm border-l border-zinc-800 pl-4">
               <span className="text-zinc-500">Side:</span>
               {(['white', 'black'] as const).map((color) => (
                 <label key={color} className="flex cursor-pointer items-center gap-1.5">
@@ -672,25 +706,6 @@ function App() {
                   </span>
                 </label>
               ))}
-            </div>
-          )}
-
-          {gameMode !== 'you_vs_friend' && (
-            <div className="flex items-center gap-2 border-l border-zinc-800 pl-4">
-              <span className="text-xs text-zinc-400 font-medium whitespace-nowrap">
-                Rating: <strong className="text-emerald-400">{opponentRating} Elo</strong> ({ratingTier(opponentRating)})
-              </span>
-              <input
-                type="range"
-                min={1320}
-                max={3190}
-                step={10}
-                value={opponentRating}
-                onChange={(e) => setOpponentRating(Number(e.target.value))}
-                onMouseUp={() => void startNewGame()}
-                onTouchEnd={() => void startNewGame()}
-                className="w-28 cursor-pointer accent-emerald-500"
-              />
             </div>
           )}
 
@@ -754,13 +769,13 @@ function App() {
         </div>
       </div>
 
-      <div className="flex flex-1 items-center justify-center overflow-hidden" style={{ background: '#1a1a1a' }}>
-        <div className="flex h-full items-stretch" style={{ maxHeight: 'calc(100vh - 44px)' }}>
+      <div className="flex flex-1 items-center justify-center overflow-hidden w-full h-full" style={{ background: '#1a1a1a' }}>
+        <div className="flex h-full w-full items-center justify-center gap-4 p-2" style={{ maxHeight: 'calc(100vh - 44px)' }}>
           <div
-            className="relative flex-shrink-0"
+            className="relative flex-shrink-0 flex items-center justify-center"
             style={{
-              width: 'min(calc(100vh - 44px - 8px), calc(100vw - 380px - 8px))',
-              height: 'min(calc(100vh - 44px - 8px), calc(100vw - 380px - 8px))',
+              width: 'min(calc(100vh - 44px - 16px), calc(100vw - 420px - 16px))',
+              height: 'min(calc(100vh - 44px - 16px), calc(100vw - 420px - 16px))',
             }}
           >
             {/* Backend connection overlay — shown when game hasn't started yet */}
@@ -838,8 +853,8 @@ function App() {
           </div>
 
           <div
-            className="flex flex-shrink-0 flex-col overflow-hidden border-l border-zinc-800/60"
-            style={{ width: '420px', background: '#0f0f12' }}
+            className="flex flex-shrink-0 flex-col overflow-hidden rounded-lg border border-zinc-800/60 shadow-2xl"
+            style={{ width: '400px', height: 'min(calc(100vh - 44px - 16px), calc(100vw - 420px - 16px))', background: '#0f0f12' }}
           >
             <MoveLog history={history} playerColor={playerColor} />
           </div>

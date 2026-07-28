@@ -57,3 +57,45 @@ export function speakMoveCategory(label: string): void {
     // Audio fallback gracefully handled
   }
 }
+
+export function speakRatingAnnouncement(rating: number, tier: string): void {
+  if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+    return;
+  }
+
+  const line = `Rating ${rating}. ${tier} mode.`;
+
+  try {
+    window.speechSynthesis.cancel();
+
+    const utterance = new SpeechSynthesisUtterance(line);
+    utterance.rate = 1.0;
+    utterance.pitch = 1.0;
+    utterance.volume = 1.0;
+
+    const pickVoiceAndSpeak = () => {
+      const voices = window.speechSynthesis.getVoices();
+      const preferredVoice =
+        voices.find((v) => /en/i.test(v.lang) && /natural|aria|google us english|zira|samantha/i.test(v.name)) ||
+        voices.find((v) => /en/i.test(v.lang)) ||
+        voices[0];
+
+      if (preferredVoice) {
+        utterance.voice = preferredVoice;
+      }
+      window.speechSynthesis.speak(utterance);
+    };
+
+    const voices = window.speechSynthesis.getVoices();
+    if (voices.length > 0) {
+      pickVoiceAndSpeak();
+    } else {
+      window.speechSynthesis.onvoiceschanged = () => {
+        window.speechSynthesis.onvoiceschanged = null;
+        pickVoiceAndSpeak();
+      };
+    }
+  } catch {
+    // Audio fallback gracefully handled
+  }
+}
