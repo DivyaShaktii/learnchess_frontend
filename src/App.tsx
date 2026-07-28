@@ -256,17 +256,25 @@ function App() {
   };
 
   const handleUndoBadMove = async () => {
-    if (!gameId) return;
+    if (!gameId || isRobotThinking) return;
+
+    if (warningActive) {
+      handleDismissWarning();
+      return;
+    }
 
     try {
       const plies = 2;
       const res = await api.undoMove(gameId, plies);
       setFen(res.fen);
+      previousFenRef.current = res.fen;
       setHistory(res.move_history);
       resetWarningState();
       setCoachMessage('Move undone. Choose your next move!');
     } catch {
-      setFen(previousFenRef.current);
+      if (previousFenRef.current) {
+        setFen(previousFenRef.current);
+      }
       resetWarningState();
     }
   };
