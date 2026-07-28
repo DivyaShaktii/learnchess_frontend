@@ -71,6 +71,23 @@ export interface BestMovesResponse {
   }>;
 }
 
+export interface StartPuzzleResponse {
+  session_id: string;
+  fen: string;
+  side_to_move: string;
+}
+
+export interface PuzzleAttemptResponse {
+  correct: boolean;
+  opponent_reply_uci: string | null;
+  solved: boolean;
+  fen: string;
+}
+
+export interface PuzzleHintResponse {
+  hint_square: string | null;
+}
+
 class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -127,5 +144,25 @@ export const api = {
 
   async getRobotMove(gameId: string): Promise<BestMovesResponse> {
     return fetchWithCheck(`${API_BASE}/api/engine/robot-move/${gameId}`);
+  },
+
+  async startPuzzle(level: number): Promise<StartPuzzleResponse> {
+    return fetchWithCheck(`${API_BASE}/api/puzzles/start`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ level }),
+    });
+  },
+
+  async attemptPuzzle(sessionId: string, moveUci: string): Promise<PuzzleAttemptResponse> {
+    return fetchWithCheck(`${API_BASE}/api/puzzles/attempt`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: sessionId, move_uci: moveUci }),
+    });
+  },
+
+  async getPuzzleHint(sessionId: string): Promise<PuzzleHintResponse> {
+    return fetchWithCheck(`${API_BASE}/api/puzzles/hint/${sessionId}`);
   },
 };

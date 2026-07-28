@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Chess } from 'chess.js';
-import { AlertCircle, X, RefreshCcw, Maximize2, Minimize2 } from 'lucide-react';
+import { AlertCircle, X, RefreshCcw } from 'lucide-react';
 import { ChessBoardArea } from './components/ChessBoardArea';
 import { CoachOverlay } from './components/CoachOverlay';
 import { MoveLog } from './components/MoveLog';
@@ -33,7 +33,7 @@ function Toast({ message, onClose }: ToastProps) {
   );
 }
 
-export type GameMode = 'you_vs_robot' | 'robot_vs_robot' | 'you_vs_friend';
+export type GameMode = 'you_vs_robot' | 'puzzle_mode';
 
 type MoveHistoryEntry = {
   san: string;
@@ -49,6 +49,8 @@ const ratingTier = (r: number) =>
 
 function App() {
   const [gameMode, setGameMode] = useState<GameMode>('you_vs_robot');
+  const [puzzleLevel, setPuzzleLevel] = useState(1);
+  const [puzzleSessionId, setPuzzleSessionId] = useState<string | null>(null);
   const [playerColor, setPlayerColor] = useState<'white' | 'black'>('white');
   const [learnerMode, setLearnerMode] = useState(true);
   const [coachVoiceEnabled, setCoachVoiceEnabled] = useState(true);
@@ -56,27 +58,10 @@ function App() {
   const [opponentRating, setOpponentRating] = useState(1500);
   const [fen, setFen] = useState(START_FEN);
   const [history, setHistory] = useState<MoveHistoryEntry[]>([]);
-  const [isFullscreen, setIsFullscreen] = useState(false);
 
-  useEffect(() => {
-    const onFullscreenChange = () => {
-      setIsFullscreen(!!document.fullscreenElement);
-    };
-    document.addEventListener('fullscreenchange', onFullscreenChange);
-    return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
-  }, []);
-
-  const toggleFullscreen = useCallback(() => {
-    if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen().catch(() => {});
-    } else {
-      document.exitFullscreen().catch(() => {});
-    }
-  }, []);
 
   const [isThinking, setIsThinking] = useState(false);
   const [isRobotThinking, setIsRobotThinking] = useState(false);
-  const [coachMessage, setCoachMessage] = useState('');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const [overlayVisible, setOverlayVisible] = useState(false);
@@ -126,8 +111,8 @@ function App() {
 
       if (gameMode === 'you_vs_robot') {
         turn = playerColor === 'white' ? isWhiteTurn : !isWhiteTurn;
-      } else if (gameMode === 'you_vs_friend') {
-        turn = true;
+      } else if (gameMode === 'puzzle_mode') {
+        turn = playerColor === 'white' ? isWhiteTurn : !isWhiteTurn;
       }
 
       return turn && !isRobotThinking;
@@ -143,16 +128,31 @@ function App() {
     const tryStart = async (attemptsLeft: number) => {
       setIsConnecting(true);
       try {
-        const res = await api.startNewGame(undefined, opponentRating);
-        if (!cancelled) {
-          setGameId(res.game_id);
-          setFen(res.fen);
-          setHistory([]);
-          resetWarningState();
-          previousFenRef.current = res.fen;
-          setToastMessage(null);
-          if (coachVoiceEnabled) {
-            speakRatingAnnouncement(opponentRating, ratingTier(opponentRating));
+        if (gameMode === 'puzzle_mode') {
+          const res = await api.startPuzzle(puzzleLevel);
+          if (!cancelled) {
+            setPuzzleSessionId(res.session_id);
+            setFen(res.fen);
+            setPlayerColor(res.side_to_move as 'white' | 'black');
+            setHistory([]);
+            resetWarningState();
+            previousFenRef.current = res.fen;
+            setToastMessage(null);
+            setGameId(null);
+          }
+        } else {
+          const res = await api.startNewGame(undefined, opponentRating);
+          if (!cancelled) {
+            setGameId(res.game_id);
+            setFen(res.fen);
+            setHistory([]);
+            resetWarningState();
+            previousFenRef.current = res.fen;
+            setToastMessage(null);
+            setPuzzleSessionId(null);
+            if (coachVoiceEnabled) {
+              speakRatingAnnouncement(opponentRating, ratingTier(opponentRating));
+            }
           }
         }
       } catch {
@@ -183,14 +183,12 @@ function App() {
       if (chess.isGameOver()) return;
 
       const isWhiteTurn = chess.turn() === 'w';
-      const shouldRobotMove =
-        gameMode === 'robot_vs_robot' ||
-        (gameMode === 'you_vs_robot' && (playerColor === 'white' ? !isWhiteTurn : isWhiteTurn));
+      const shouldRobotMove = gameMode === 'you_vs_robot' && (playerColor === 'white' ? !isWhiteTurn : isWhiteTurn);
 
       if (shouldRobotMove) {
         const timer = setTimeout(() => {
           void playRobotMove();
-        }, gameMode === 'robot_vs_robot' ? 600 : 400);
+        }, 400);
 
         return () => clearTimeout(timer);
       }
@@ -202,48 +200,41 @@ function App() {
     if (err?.status === 404) {
       // Game session lost on backend — restart silently, no recursive error handling
       setToastMessage('Session lost. Starting a new game...');
-      void (async () => {
-        try {
-          setIsThinking(false);
-          setIsRobotThinking(false);
-          setCoachMessage('');
-          setSquareSuggestions([]);
-          lastSpokenMessageRef.current = '';
-          const res = await api.startNewGame(undefined, opponentRating);
-          setGameId(res.game_id);
-          setFen(res.fen);
-          setHistory([]);
-          resetWarningState();
-          previousFenRef.current = res.fen;
-          setToastMessage(null);
-          if (coachVoiceEnabled) {
-            speakRatingAnnouncement(opponentRating, ratingTier(opponentRating));
-          }
-        } catch {
-          setToastMessage('Coach is unreachable — check the backend is running');
-        }
-      })();
+      void startNewGame();
     } else if (err?.name === 'ApiError' || err?.message?.includes('Failed to fetch') || err?.message?.includes('NetworkError')) {
       setToastMessage('Coach is unreachable — check the backend is running');
     }
   };
 
-  const startNewGame = async () => {
+  const startNewGame = async (overrideMode?: GameMode) => {
     try {
       setIsThinking(false);
-      setIsRobotThinking(false);
-      setCoachMessage('');
       setSquareSuggestions([]);
       lastSpokenMessageRef.current = '';
-      const res = await api.startNewGame(undefined, opponentRating);
-      setGameId(res.game_id);
-      setFen(res.fen);
-      setHistory([]);
       resetWarningState();
-      previousFenRef.current = res.fen;
-      setToastMessage(null);
-      if (coachVoiceEnabled) {
-        speakRatingAnnouncement(opponentRating, ratingTier(opponentRating));
+
+      const activeMode = overrideMode || gameMode;
+
+      if (activeMode === 'puzzle_mode') {
+        const res = await api.startPuzzle(puzzleLevel);
+        setPuzzleSessionId(res.session_id);
+        setFen(res.fen);
+        setPlayerColor(res.side_to_move as 'white' | 'black');
+        setHistory([]);
+        previousFenRef.current = res.fen;
+        setToastMessage(null);
+        setGameId(null);
+      } else {
+        const res = await api.startNewGame(undefined, opponentRating);
+        setGameId(res.game_id);
+        setFen(res.fen);
+        setHistory([]);
+        previousFenRef.current = res.fen;
+        setToastMessage(null);
+        setPuzzleSessionId(null);
+        if (coachVoiceEnabled) {
+          speakRatingAnnouncement(opponentRating, ratingTier(opponentRating));
+        }
       }
     } catch (err) {
       handleError(err);
@@ -268,7 +259,7 @@ function App() {
     if (!gameId) return;
 
     try {
-      const plies = gameMode === 'you_vs_friend' ? 1 : 2;
+      const plies = 2;
       const res = await api.undoMove(gameId, plies);
       setFen(res.fen);
       setHistory(res.move_history);
@@ -296,7 +287,8 @@ function App() {
   }, []);
 
   const handleMoveAttempt = (sourceSquare: string, targetSquare: string, piece: string) => {
-    if (isThinking || isRobotThinking || !gameId) return false;
+    if (isThinking || isRobotThinking) return false;
+    if (!gameId && !puzzleSessionId) return false;
 
     const chess = new Chess(fen);
     let move;
@@ -318,17 +310,52 @@ function App() {
     const moveUci = move.from + move.to + (move.promotion || '');
     const nextFen = chess.fen();
 
+    if (gameMode === 'puzzle_mode' && puzzleSessionId) {
+       void (async () => {
+         try {
+           setIsThinking(true);
+           setOverlayVisible(false);
+           setWarningActive(false);
+
+           const res = await api.attemptPuzzle(puzzleSessionId, moveUci);
+           if (!res.correct) {
+              setToastMessage('Incorrect move. Try again!');
+           } else {
+              setFen(nextFen); 
+              previousFenRef.current = nextFen;
+              
+              if (res.opponent_reply_uci) {
+                 setTimeout(() => {
+                    setFen(res.fen);
+                    previousFenRef.current = res.fen;
+                    playMoveSoundForUci(nextFen, res.opponent_reply_uci!);
+                 }, 400);
+              } else if (res.solved) {
+                 setToastMessage('🎉 Puzzle Solved!');
+                 setTimeout(() => {
+                   void startNewGame();
+                 }, 2000);
+              }
+           }
+         } catch (err) {
+           handleError(err);
+         } finally {
+           setIsThinking(false);
+         }
+       })();
+       return true;
+    }
+
     void (async () => {
       try {
         setOverlayVisible(false);
         setWarningActive(false);
         setIsThinking(true);
         setSquareSuggestions([]);
-        setCoachMessage('Analysing...');
         setHintSquare(null);
         setFollowUpArrows([]);
 
-        const preRes = await api.precheckMove(gameId, moveUci);
+        const preRes = await api.precheckMove(gameId!, moveUci);
 
         const label = preRes.label || 'Move';
         const labelMap: Record<string, string> = {
@@ -350,7 +377,6 @@ function App() {
         setPendingFen(nextFen);
         setThreat(preRes.threat_preview);
         setAlternatives(preRes.top_alternatives ?? []);
-        setCoachMessage('');
 
         const isBoxTier = Boolean(preRes.is_box_tier);
 
@@ -387,7 +413,7 @@ function App() {
       setIsThinking(true);
       const moveUci = pendingMoveUci;
       const targetFen = pendingFen;
-      const preMovefen = previousFenRef.current;
+      const preMovefen = previousFenRef.current || fen;
       resetWarningState();
       try {
         // Play sound now with the original pre-move fen (before setFen updates state)
@@ -524,24 +550,7 @@ function App() {
     setCoachMessage('Good call. Find a better move!');
   };
 
-  const handlePlayAlternative = async (moveUci: string) => {
-    if (!gameId) return;
 
-    setIsThinking(true);
-    const preMovefen = previousFenRef.current;
-    try {
-      const chess = new Chess(preMovefen);
-      const parsedMove = chess.move(moveUci);
-      if (parsedMove) setFen(chess.fen());
-    } catch {
-      // Ignore preview-only failures; the backend remains authoritative.
-    }
-
-    resetWarningState();
-    await executeCommit(moveUci, preMovefen);
-    setCoachMessage('Playing the suggested move!');
-    setIsThinking(false);
-  };
 
   const handleAskHint = () => {
     const bestMove = alternatives?.[0]?.move;
@@ -665,25 +674,57 @@ function App() {
       >
         <div className="flex items-center gap-4">
           <div className="flex flex-col justify-center gap-0.5">
-            <div className="flex items-center gap-1.5 text-xs font-bold text-zinc-100">
-              <span className="cursor-default">You Vs Robot</span>
+            <div className="flex items-center gap-2">
+              <select
+                value={gameMode}
+                onChange={(e) => {
+                  const newMode = e.target.value as GameMode;
+                  setGameMode(newMode);
+                  void startNewGame(newMode);
+                }}
+                className="cursor-pointer bg-transparent text-sm font-bold text-zinc-100 outline-none"
+                style={{ appearance: 'auto' }}
+              >
+                <option value="you_vs_robot" className="bg-zinc-900">You Vs Robot</option>
+                <option value="puzzle_mode" className="bg-zinc-900">Puzzle Mode</option>
+              </select>
             </div>
-            <div className="flex items-center gap-1.5 pl-2 border-l border-emerald-500/40">
-              <span className="text-[10px] text-zinc-400 font-medium whitespace-nowrap">
-                Rating: <strong className="text-emerald-400">{opponentRating}</strong> ({ratingTier(opponentRating)})
-              </span>
-              <input
-                type="range"
-                min={1320}
-                max={3190}
-                step={10}
-                value={opponentRating}
-                onChange={(e) => setOpponentRating(Number(e.target.value))}
-                onMouseUp={() => void startNewGame()}
-                onTouchEnd={() => void startNewGame()}
-                className="w-24 cursor-pointer accent-emerald-500"
-              />
-            </div>
+            
+            {gameMode === 'puzzle_mode' ? (
+              <div className="flex items-center gap-1.5 pl-2 border-l border-emerald-500/40">
+                <span className="text-[10px] text-zinc-400 font-medium whitespace-nowrap">
+                  Level: <strong className="text-emerald-400">{puzzleLevel}</strong>
+                </span>
+                <input
+                  type="range"
+                  min={1}
+                  max={5}
+                  step={1}
+                  value={puzzleLevel}
+                  onChange={(e) => setPuzzleLevel(Number(e.target.value))}
+                  onMouseUp={() => void startNewGame()}
+                  onTouchEnd={() => void startNewGame()}
+                  className="w-24 cursor-pointer accent-emerald-500"
+                />
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5 pl-2 border-l border-emerald-500/40">
+                <span className="text-[10px] text-zinc-400 font-medium whitespace-nowrap">
+                  Rating: <strong className="text-emerald-400">{opponentRating}</strong> ({ratingTier(opponentRating)})
+                </span>
+                <input
+                  type="range"
+                  min={1320}
+                  max={3190}
+                  step={10}
+                  value={opponentRating}
+                  onChange={(e) => setOpponentRating(Number(e.target.value))}
+                  onMouseUp={() => void startNewGame()}
+                  onTouchEnd={() => void startNewGame()}
+                  className="w-24 cursor-pointer accent-emerald-500"
+                />
+              </div>
+            )}
           </div>
 
           {gameMode === 'you_vs_robot' && (
@@ -759,13 +800,15 @@ function App() {
             Learner Mode: {learnerMode ? 'ON' : 'OFF'}
           </button>
 
-          <button
-            onClick={() => void handleUndoBadMove()}
-            className="flex items-center gap-1.5 rounded-full border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-xs font-semibold text-zinc-200 transition-all hover:bg-zinc-700"
-          >
-            <RefreshCcw size={12} />
-            Undo Move
-          </button>
+          {gameMode === 'you_vs_robot' && (
+            <button
+              onClick={() => void handleUndoBadMove()}
+              className="flex items-center gap-1.5 rounded-full border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-xs font-semibold text-zinc-200 transition-all hover:bg-zinc-700"
+            >
+              <RefreshCcw size={12} />
+              Undo Move
+            </button>
+          )}
         </div>
       </div>
 
@@ -779,7 +822,7 @@ function App() {
             }}
           >
             {/* Backend connection overlay — shown when game hasn't started yet */}
-            {!gameId && (
+            {(!gameId && !puzzleSessionId) && (
               <div
                 className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-4 rounded"
                 style={{ background: 'rgba(0,0,0,0.82)', backdropFilter: 'blur(4px)' }}
@@ -853,10 +896,34 @@ function App() {
           </div>
 
           <div
-            className="flex flex-shrink-0 flex-col overflow-hidden rounded-lg border border-zinc-800/60 shadow-2xl"
+            className="flex flex-shrink-0 flex-col overflow-hidden rounded-lg border border-zinc-800/60 shadow-2xl relative"
             style={{ width: '400px', height: 'min(calc(100vh - 44px - 16px), calc(100vw - 420px - 16px))', background: '#0f0f12' }}
           >
-            <MoveLog history={history} playerColor={playerColor} />
+            {gameMode === 'puzzle_mode' ? (
+              <div className="flex flex-col h-full w-full p-6 text-center justify-center">
+                <h2 className="text-2xl font-bold text-emerald-400 mb-2">Puzzle Mode</h2>
+                <p className="text-zinc-400 mb-8">Find the best sequence of moves!</p>
+                {puzzleSessionId && (
+                  <button
+                    onClick={async () => {
+                      try {
+                        const res = await api.getPuzzleHint(puzzleSessionId);
+                        if (res.hint_square) {
+                          setHintSquare(res.hint_square);
+                        }
+                      } catch (e) {
+                        console.error(e);
+                      }
+                    }}
+                    className="mx-auto flex items-center justify-center gap-2 rounded-full border border-emerald-700 bg-emerald-900/50 px-6 py-3 text-sm font-semibold text-emerald-300 transition-all hover:bg-emerald-800/80"
+                  >
+                    💡 Get Hint
+                  </button>
+                )}
+              </div>
+            ) : (
+              <MoveLog history={history} playerColor={playerColor} />
+            )}
           </div>
         </div>
       </div>
