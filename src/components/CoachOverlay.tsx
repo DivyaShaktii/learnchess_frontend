@@ -104,14 +104,7 @@ export function CoachOverlay({
           }
         `}</style>
 
-        <div className="flex items-start justify-between gap-4 px-6 pt-5 pb-3">
-          <div className="min-w-0 flex-1">
-            <p className="mb-1 text-base font-bold text-amber-300">{headingText}</p>
-            <p className="text-xs font-semibold leading-relaxed text-amber-400/90">{tipText}</p>
-          </div>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-3 px-6 pb-5 pt-5">
+        <div className="flex flex-wrap items-center justify-center gap-3 px-6 py-4">
           <button
             onClick={onAskHint}
             className="flex items-center gap-2 rounded-lg border border-zinc-700/80 bg-zinc-800/80 px-4 py-2 text-sm font-bold text-zinc-200 transition-all hover:bg-zinc-700/80"
