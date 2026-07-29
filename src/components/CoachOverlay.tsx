@@ -1,8 +1,6 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
-import { Chess } from 'chess.js';
-import { Lightbulb, Play, ShieldAlert, HelpCircle } from 'lucide-react';
+import { useEffect, useCallback } from 'react';
+import { Lightbulb, Play, ShieldAlert } from 'lucide-react';
 import type { ThreatPreview, MoveAlternative } from '../services/api';
-import { translateMoveToEnglish } from '../utils/chessTranslator';
 
 interface CoachOverlayProps {
   visible: boolean;
@@ -25,11 +23,11 @@ export function CoachOverlay({
   visible,
   isThinking: _isThinking,
   classification,
-  threat,
-  alternatives = [],
+  threat: _threat,
+  alternatives: _alternatives = [],
   fen: _fen,
-  moveCount = 1,
-  coachMessage,
+  moveCount: _moveCount = 1,
+  coachMessage: _coachMessage,
   autoDismissSeconds = 10,
   onCommitWarning,
   onDismissWarning,
@@ -38,9 +36,7 @@ export function CoachOverlay({
   onShowFollowUp,
 }: CoachOverlayProps) {
   const isBadMove = ['Blunder', 'Mistake', 'Inaccuracy'].includes(classification || '');
-  const isOpening = moveCount <= 5;
-  const isComplex = (threat?.resulting_pv?.length ?? 0) >= 3;
-  const showFollowUpButton = !isOpening && isComplex;
+  const showFollowUpButton = isBadMove;
 
   useEffect(() => {
     if (!visible) {
@@ -68,19 +64,6 @@ export function CoachOverlay({
   }, [onDismissWarning]);
 
   if (!visible) return null;
-
-  const headingText = _isThinking
-    ? 'Coach: Analysing...'
-    : classification
-    ? `Coach: ${classification}`
-    : 'Coach';
-
-  const tipText = _isThinking
-    ? 'Please wait...'
-    : coachMessage ||
-      (isOpening && isBadMove
-        ? 'Watch your move — try building your center first.'
-        : 'Check what your opponent is threatening before you commit.');
 
   return (
     <div

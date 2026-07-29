@@ -136,7 +136,7 @@ export function CoachPanel({
             </div>
 
             <p className="font-medium text-amber-200">
-              {alternatives[0]?.san ? (
+              {alternatives?.[0]?.san ? (
                 `🧩 Puzzle Clue: Can you find a move that improves your position without exposing yourself to counterattacks?`
               ) : (
                 '🧩 Puzzle Clue: Look for checks, captures, and central pawn pushes!'

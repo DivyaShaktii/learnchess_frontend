@@ -8,7 +8,7 @@ import { api } from './services/api';
 import type { MoveAlternative, ThreatPreview } from './services/api';
 import { getMoveSquares } from './utils/chessTranslator';
 import { chessSounds } from './utils/soundEffects';
-import { speakMoveCategory, speakRatingAnnouncement } from './utils/coachVoice';
+import { speakMoveCategory, speakRatingAnnouncement, speakPuzzleStartAnnouncement, speakRefutationWarning } from './utils/coachVoice';
 
 export interface ToastProps {
   message: string;
@@ -70,11 +70,15 @@ function App() {
   const [pendingFen, setPendingFen] = useState<string | null>(null);
   const [badMoveSquare, setBadMoveSquare] = useState<string | null>(null);
   const [hintSquare, setHintSquare] = useState<string | null>(null);
+  const [puzzleHintSquare, setPuzzleHintSquare] = useState<string | null>(null);
   const [classification, setClassification] = useState<string | undefined>();
+  const [_coachMessage, setCoachMessage] = useState('');
   const [threat, setThreat] = useState<ThreatPreview | null>(null);
   const [alternatives, setAlternatives] = useState<MoveAlternative[]>([]);
+  const [refutationSequence, setRefutationSequence] = useState<string[]>([]);
   const [squareSuggestions, setSquareSuggestions] = useState<MoveAlternative[]>([]);
   const [followUpArrows, setFollowUpArrows] = useState<[string, string, string][]>([]);
+  const [opponentThreatSquare, setOpponentThreatSquare] = useState<string | null>(null);
 
   const previousFenRef = useRef(START_FEN);
   const lastSpokenMessageRef = useRef('');
@@ -136,6 +140,7 @@ function App() {
             setPlayerColor(res.side_to_move as 'white' | 'black');
             setHistory([]);
             resetWarningState();
+            setPuzzleHintSquare(res.first_move_source || null);
             previousFenRef.current = res.fen;
             setToastMessage(null);
             setGameId(null);
@@ -221,9 +226,13 @@ function App() {
         setFen(res.fen);
         setPlayerColor(res.side_to_move as 'white' | 'black');
         setHistory([]);
+        setPuzzleHintSquare(res.first_move_source || null);
         previousFenRef.current = res.fen;
         setToastMessage(null);
         setGameId(null);
+        if (coachVoiceEnabled) {
+          speakPuzzleStartAnnouncement(res.side_to_move);
+        }
       } else {
         const res = await api.startNewGame(undefined, opponentRating);
         setGameId(res.game_id);
@@ -249,6 +258,8 @@ function App() {
     setBadMoveSquare(null);
     setHintSquare(null);
     setFollowUpArrows([]);
+    setRefutationSequence([]);
+    setOpponentThreatSquare(null);
     setClassification(undefined);
     setThreat(null);
     setAlternatives([]);
@@ -324,6 +335,7 @@ function App() {
            setIsThinking(true);
            setOverlayVisible(false);
            setWarningActive(false);
+           setPuzzleHintSquare(null);
 
            const res = await api.attemptPuzzle(puzzleSessionId, moveUci);
            if (!res.correct) {
@@ -385,6 +397,7 @@ function App() {
         setPendingFen(nextFen);
         setThreat(preRes.threat_preview);
         setAlternatives(preRes.top_alternatives ?? []);
+        setRefutationSequence(preRes.refutation_sequence ?? []);
 
         const isBoxTier = Boolean(preRes.is_box_tier);
 
@@ -567,13 +580,53 @@ function App() {
     }
   };
 
-  const handleShowFollowUp = () => {
-    const arrowColors = ['#22c55e', '#eab308', '#ef4444']; // green, amber, red — 1st/2nd/3rd choice
-    const arrows = (alternatives ?? [])
-      .slice(0, 3)
-      .filter((alt) => alt.move)
-      .map((alt, i) => [alt.move!.slice(0, 2), alt.move!.slice(2, 4), arrowColors[i]] as [string, string, string]);
-    setFollowUpArrows(arrows);
+  const handleShowFollowUp = async () => {
+    if (!pendingMoveUci || refutationSequence.length === 0) return;
+
+    if (coachVoiceEnabled) {
+      speakRefutationWarning();
+    }
+
+    // Start with the position before the bad move
+    const chess = new Chess(previousFenRef.current);
+    
+    // 1. Play the bad move, highlight it in red
+    try {
+      const playerMove = chess.move(pendingMoveUci);
+      setFen(chess.fen());
+      setBadMoveSquare(playerMove.to); // Highlight player's piece in red
+      playMoveSoundForUci(previousFenRef.current, pendingMoveUci);
+    } catch {
+      return;
+    }
+
+    // 2. Play the opponent's refutation sequence (limit to 3 moves)
+    const sequence = refutationSequence.slice(0, 3);
+    for (let i = 0; i < sequence.length; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      try {
+        const uci = sequence[i];
+        const moveFen = chess.fen();
+        const move = chess.move(uci);
+        setFen(chess.fen());
+        playMoveSoundForUci(moveFen, uci);
+        
+        // Highlight opponent's threat in blue (only on the opponent's turn)
+        if (i % 2 === 0) {
+          setOpponentThreatSquare(move.to);
+        } else {
+          setOpponentThreatSquare(null);
+        }
+      } catch {
+        break;
+      }
+    }
+
+    // Wait a bit, then snap back
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+    setFen(previousFenRef.current);
+    setBadMoveSquare(null);
+    setOpponentThreatSquare(null);
   };
 
   const handlePieceSelect = async (square: string | null) => {
@@ -681,58 +734,20 @@ function App() {
         style={{ height: '44px', background: '#111' }}
       >
         <div className="flex items-center gap-4">
-          <div className="flex flex-col justify-center gap-0.5">
-            <div className="flex items-center gap-2">
-              <select
-                value={gameMode}
-                onChange={(e) => {
-                  const newMode = e.target.value as GameMode;
-                  setGameMode(newMode);
-                  void startNewGame(newMode);
-                }}
-                className="cursor-pointer bg-transparent text-sm font-bold text-zinc-100 outline-none"
-                style={{ appearance: 'auto' }}
-              >
-                <option value="you_vs_robot" className="bg-zinc-900">You Vs Robot</option>
-                <option value="puzzle_mode" className="bg-zinc-900">Puzzle Mode</option>
-              </select>
-            </div>
-            
-            {gameMode === 'puzzle_mode' ? (
-              <div className="flex items-center gap-1.5 pl-2 border-l border-emerald-500/40">
-                <span className="text-[10px] text-zinc-400 font-medium whitespace-nowrap">
-                  Level: <strong className="text-emerald-400">{puzzleLevel}</strong>
-                </span>
-                <input
-                  type="range"
-                  min={1}
-                  max={5}
-                  step={1}
-                  value={puzzleLevel}
-                  onChange={(e) => setPuzzleLevel(Number(e.target.value))}
-                  onMouseUp={() => void startNewGame()}
-                  onTouchEnd={() => void startNewGame()}
-                  className="w-24 cursor-pointer accent-emerald-500"
-                />
-              </div>
-            ) : (
-              <div className="flex items-center gap-1.5 pl-2 border-l border-emerald-500/40">
-                <span className="text-[10px] text-zinc-400 font-medium whitespace-nowrap">
-                  Rating: <strong className="text-emerald-400">{opponentRating}</strong> ({ratingTier(opponentRating)})
-                </span>
-                <input
-                  type="range"
-                  min={1320}
-                  max={3190}
-                  step={10}
-                  value={opponentRating}
-                  onChange={(e) => setOpponentRating(Number(e.target.value))}
-                  onMouseUp={() => void startNewGame()}
-                  onTouchEnd={() => void startNewGame()}
-                  className="w-24 cursor-pointer accent-emerald-500"
-                />
-              </div>
-            )}
+          <div className="flex items-center gap-2">
+            <select
+              value={gameMode}
+              onChange={(e) => {
+                const newMode = e.target.value as GameMode;
+                setGameMode(newMode);
+                void startNewGame(newMode);
+              }}
+              className="cursor-pointer bg-transparent text-sm font-bold text-zinc-100 outline-none"
+              style={{ appearance: 'auto' }}
+            >
+              <option value="you_vs_robot" className="bg-zinc-900">You Vs Robot</option>
+              <option value="puzzle_mode" className="bg-zinc-900">Puzzle Mode</option>
+            </select>
           </div>
 
           {gameMode === 'you_vs_robot' && (
@@ -765,6 +780,43 @@ function App() {
             <RefreshCcw size={13} />
             Restart Game
           </button>
+
+          {gameMode === 'puzzle_mode' ? (
+            <div className="flex items-center gap-1.5 pl-2 border-l border-emerald-500/40">
+              <span className="text-sm text-zinc-400 font-medium whitespace-nowrap">
+                Level: <strong className="text-emerald-400">{puzzleLevel}</strong>
+              </span>
+              <input
+                type="range"
+                min={1}
+                max={5}
+                step={1}
+                value={puzzleLevel}
+                onChange={(e) => setPuzzleLevel(Number(e.target.value))}
+                onMouseUp={() => void startNewGame()}
+                onTouchEnd={() => void startNewGame()}
+                className="w-24 cursor-pointer accent-emerald-500"
+              />
+              <span className="text-xs font-medium text-zinc-500 ml-1">Playing as {playerColor}</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5 pl-2 border-l border-emerald-500/40">
+              <span className="text-sm text-zinc-400 font-medium whitespace-nowrap">
+                Rating: <strong className="text-emerald-400">{opponentRating}</strong> ({ratingTier(opponentRating)})
+              </span>
+              <input
+                type="range"
+                min={1320}
+                max={3190}
+                step={10}
+                value={opponentRating}
+                onChange={(e) => setOpponentRating(Number(e.target.value))}
+                onMouseUp={() => void startNewGame()}
+                onTouchEnd={() => void startNewGame()}
+                className="w-24 cursor-pointer accent-emerald-500"
+              />
+            </div>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
@@ -884,6 +936,8 @@ function App() {
               isPlayerTurn={isPlayerTurn}
               badMoveSquare={badMoveSquare}
               hintSquare={hintSquare}
+              puzzleHintSquare={puzzleHintSquare}
+              opponentThreatSquare={opponentThreatSquare}
               overlay={
                 <CoachOverlay
                   visible={overlayVisible}

@@ -28,6 +28,7 @@ export interface PreMoveCheckResponse {
   best_move_san: string;
   top_alternatives: MoveAlternative[];
   threat_preview: ThreatPreview | null;
+  refutation_sequence?: string[];
   should_warn: boolean;
   is_box_tier: boolean;
   warning_message: string;
@@ -75,6 +76,7 @@ export interface StartPuzzleResponse {
   session_id: string;
   fen: string;
   side_to_move: string;
+  first_move_source?: string;
 }
 
 export interface PuzzleAttemptResponse {

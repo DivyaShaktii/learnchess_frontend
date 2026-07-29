@@ -13,6 +13,8 @@ interface ChessBoardAreaProps {
   isPlayerTurn?: boolean;
   badMoveSquare?: string | null;
   hintSquare?: string | null;
+  puzzleHintSquare?: string | null;
+  opponentThreatSquare?: string | null;
   overlay?: React.ReactNode;
 }
 
@@ -26,6 +28,8 @@ export function ChessBoardArea({
   isPlayerTurn = true,
   badMoveSquare,
   hintSquare,
+  puzzleHintSquare,
+  opponentThreatSquare,
   overlay,
 }: ChessBoardAreaProps) {
   const [moveFrom, setMoveFrom] = useState<string | null>(null);
@@ -138,10 +142,24 @@ export function ChessBoardArea({
       };
     }
 
+    if (opponentThreatSquare) {
+      styles[opponentThreatSquare] = {
+        backgroundColor: 'rgba(59, 130, 246, 0.5)',
+        boxShadow: 'inset 0 0 12px rgba(29, 78, 216, 0.8)',
+      };
+    }
+
     if (hintSquare) {
       styles[hintSquare] = {
         backgroundColor: 'rgba(249, 115, 22, 0.55)',
         boxShadow: 'inset 0 0 0 3px rgba(234, 88, 12, 0.95)',
+        borderRadius: '4px',
+      };
+    }
+
+    if (puzzleHintSquare) {
+      styles[puzzleHintSquare] = {
+        animation: 'pulse-glow 2s infinite ease-in-out',
         borderRadius: '4px',
       };
     }
@@ -157,7 +175,7 @@ export function ChessBoardArea({
     }
 
     return styles;
-  }, [moveFrom, fen, badMoveSquare, hintSquare, illegalFlashSquare]);
+  }, [moveFrom, fen, badMoveSquare, hintSquare, puzzleHintSquare, opponentThreatSquare, illegalFlashSquare]);
 
 
   // Original dark/light gray squares
