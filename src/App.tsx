@@ -8,7 +8,7 @@ import { api } from './services/api';
 import type { MoveAlternative, ThreatPreview } from './services/api';
 import { getMoveSquares } from './utils/chessTranslator';
 import { chessSounds } from './utils/soundEffects';
-import { speakMoveCategory, speakRatingAnnouncement, speakPuzzleStartAnnouncement, speakRefutationWarning } from './utils/coachVoice';
+import { speakMoveCategory, speakRatingAnnouncement, speakPuzzleStartAnnouncement, speakRefutationWarning, speakGameWon } from './utils/coachVoice';
 
 export interface ToastProps {
   message: string;
@@ -241,6 +241,7 @@ function App() {
         previousFenRef.current = res.fen;
         setToastMessage(null);
         setPuzzleSessionId(null);
+        setPuzzleHintSquare(null);
         if (coachVoiceEnabled) {
           speakRatingAnnouncement(opponentRating, ratingTier(opponentRating));
         }
@@ -352,6 +353,7 @@ function App() {
                  }, 400);
               } else if (res.solved) {
                  setToastMessage('🎉 Puzzle Solved!');
+                 if (coachVoiceEnabled) speakGameWon();
                  setTimeout(() => {
                    void startNewGame();
                  }, 2000);
@@ -503,6 +505,9 @@ function App() {
         if (chess.isCheckmate()) {
           const winner = chess.turn() === 'w' ? 'Black' : 'White';
           msg = `🏆 Checkmate! ${winner} wins the game!`;
+          if (winner.toLowerCase() === playerColor && coachVoiceEnabled) {
+            speakGameWon();
+          }
         } else if (chess.isDraw()) {
           msg = '🤝 Game Over! The game ended in a draw.';
         }
@@ -533,6 +538,9 @@ function App() {
         if (chess.isCheckmate()) {
           const winner = chess.turn() === 'w' ? 'Black' : 'White';
           msg = `🏆 Checkmate! ${winner} wins the game!`;
+          if (winner.toLowerCase() === playerColor && coachVoiceEnabled) {
+            speakGameWon();
+          }
         } else if (chess.isDraw()) {
           msg = '🤝 Game Over! The game ended in a draw.';
         }

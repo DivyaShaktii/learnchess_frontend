@@ -1,183 +1,65 @@
-// Web Speech API layer for move classification audio feedback
+// Audio playback layer for move classification feedback
 
-const CATEGORY_LINES: Record<string, string> = {
-  Book: "That's a book move.",
-  Best: 'Best move on the board.',
-  'Best Move': 'Best move on the board.',
-  Brilliant: 'Brilliant!',
-  Excellent: 'Excellent move.',
-  Good: 'Good move.',
-  Inaccuracy: "That's a slight inaccuracy.",
-  Mistake: "Watch out — that's a mistake.",
-  Blunder: "That's a blunder.",
-  'Worst Move': "That's a serious blunder.",
-  Worst: "That's a serious blunder.",
+const BASE_PATH = "/Chess_Project_Voices";
+
+const AUDIO_FILES: Record<string, string> = {
+  Book: `${BASE_PATH}/Book.mp3`,
+  Best: `${BASE_PATH}/Best Move On th Board.mp3`,
+  'Best Move': `${BASE_PATH}/Best Move On th Board.mp3`,
+  Brilliant: `${BASE_PATH}/Brilliant.mp3`,
+  Excellent: `${BASE_PATH}/Excellent move.mp3`,
+  Good: `${BASE_PATH}/Good move.mp3`,
+  Inaccuracy: `${BASE_PATH}/That's a slight inaccuracy.mp3`,
+  Mistake: `${BASE_PATH}/Watch out that's a mistake.mp3`,
+  Blunder: `${BASE_PATH}/That's a blunder..mp3`,
+  'Worst Move': `${BASE_PATH}/That's a serious blunder..mp3`,
+  Worst: `${BASE_PATH}/That's a serious blunder..mp3`,
 };
 
 export function speakMoveCategory(label: string): void {
-  if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
-    return;
-  }
+  if (typeof window === 'undefined') return;
 
-  const line = CATEGORY_LINES[label] || `${label} move.`;
-
-  try {
-    window.speechSynthesis.cancel();
-
-    const utterance = new SpeechSynthesisUtterance(line);
-    utterance.rate = 1.0;
-    utterance.pitch = 1.0;
-    utterance.volume = 1.0;
-
-    const pickVoiceAndSpeak = () => {
-      const voices = window.speechSynthesis.getVoices();
-      const preferredVoice =
-        voices.find((v) => /en/i.test(v.lang) && /natural|aria|google us english|zira|samantha/i.test(v.name)) ||
-        voices.find((v) => /en/i.test(v.lang)) ||
-        voices[0];
-
-      if (preferredVoice) {
-        utterance.voice = preferredVoice;
-      }
-      window.speechSynthesis.speak(utterance);
-    };
-
-    const voices = window.speechSynthesis.getVoices();
-    if (voices.length > 0) {
-      // Voices already loaded (Chrome after first load, Firefox always)
-      pickVoiceAndSpeak();
-    } else {
-      // First call in Chrome — wait for voices to load then speak
-      window.speechSynthesis.onvoiceschanged = () => {
-        window.speechSynthesis.onvoiceschanged = null;
-        pickVoiceAndSpeak();
-      };
+  const audioPath = AUDIO_FILES[label];
+  if (audioPath) {
+    try {
+      const audio = new Audio(audioPath);
+      audio.volume = 1.0;
+      audio.play().catch(e => console.warn("Audio play failed:", e));
+    } catch (e) {
+      console.warn("Failed to play audio", e);
     }
-  } catch {
-    // Audio fallback gracefully handled
   }
 }
 
 export function speakRefutationWarning(): void {
-  if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
-    return;
-  }
-
-  const line = "Watch out! Here is their plan.";
+  if (typeof window === 'undefined') return;
 
   try {
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(line);
-    utterance.rate = 1.0;
-    utterance.pitch = 1.0;
-    utterance.volume = 1.0;
-
-    const pickVoiceAndSpeak = () => {
-      const voices = window.speechSynthesis.getVoices();
-      const preferredVoice =
-        voices.find((v) => /en/i.test(v.lang) && /natural|aria|google us english|zira|samantha/i.test(v.name)) ||
-        voices.find((v) => /en/i.test(v.lang)) ||
-        voices[0];
-
-      if (preferredVoice) {
-        utterance.voice = preferredVoice;
-      }
-      window.speechSynthesis.speak(utterance);
-    };
-
-    const voices = window.speechSynthesis.getVoices();
-    if (voices.length > 0) {
-      pickVoiceAndSpeak();
-    } else {
-      window.speechSynthesis.onvoiceschanged = () => {
-        window.speechSynthesis.onvoiceschanged = null;
-        pickVoiceAndSpeak();
-      };
-    }
-  } catch {
-    // Audio fallback gracefully handled
+    const audio = new Audio(`${BASE_PATH}/Watch out! Here is their plan..mp3`);
+    audio.volume = 1.0;
+    audio.play().catch(e => console.warn("Audio play failed:", e));
+  } catch (e) {
+    console.warn("Failed to play audio", e);
   }
 }
+
 export function speakRatingAnnouncement(rating: number, tier: string): void {
-  if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
-    return;
-  }
-
-  const line = `Rating ${rating}. ${tier} mode.`;
-
-  try {
-    window.speechSynthesis.cancel();
-
-    const utterance = new SpeechSynthesisUtterance(line);
-    utterance.rate = 1.0;
-    utterance.pitch = 1.0;
-    utterance.volume = 1.0;
-
-    const pickVoiceAndSpeak = () => {
-      const voices = window.speechSynthesis.getVoices();
-      const preferredVoice =
-        voices.find((v) => /en/i.test(v.lang) && /natural|aria|google us english|zira|samantha/i.test(v.name)) ||
-        voices.find((v) => /en/i.test(v.lang)) ||
-        voices[0];
-
-      if (preferredVoice) {
-        utterance.voice = preferredVoice;
-      }
-      window.speechSynthesis.speak(utterance);
-    };
-
-    const voices = window.speechSynthesis.getVoices();
-    if (voices.length > 0) {
-      pickVoiceAndSpeak();
-    } else {
-      window.speechSynthesis.onvoiceschanged = () => {
-        window.speechSynthesis.onvoiceschanged = null;
-        pickVoiceAndSpeak();
-      };
-    }
-  } catch {
-    // Audio fallback gracefully handled
-  }
+  // Silenced for now as we don't have dynamic rating MP3s
+  // In the future, we can add a generic "game start" sound here
 }
 
 export function speakPuzzleStartAnnouncement(color: string): void {
-  if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
-    return;
-  }
+  // Silenced for now as we don't have dynamic puzzle MP3s
+}
 
-  const line = `Playing as ${color}.`;
+export function speakGameWon(): void {
+  if (typeof window === 'undefined') return;
 
   try {
-    window.speechSynthesis.cancel();
-
-    const utterance = new SpeechSynthesisUtterance(line);
-    utterance.rate = 1.0;
-    utterance.pitch = 1.0;
-    utterance.volume = 1.0;
-
-    const pickVoiceAndSpeak = () => {
-      const voices = window.speechSynthesis.getVoices();
-      const preferredVoice =
-        voices.find((v) => /en/i.test(v.lang) && /natural|aria|google us english|zira|samantha/i.test(v.name)) ||
-        voices.find((v) => /en/i.test(v.lang)) ||
-        voices[0];
-
-      if (preferredVoice) {
-        utterance.voice = preferredVoice;
-      }
-      window.speechSynthesis.speak(utterance);
-    };
-
-    const voices = window.speechSynthesis.getVoices();
-    if (voices.length > 0) {
-      pickVoiceAndSpeak();
-    } else {
-      window.speechSynthesis.onvoiceschanged = () => {
-        window.speechSynthesis.onvoiceschanged = null;
-        pickVoiceAndSpeak();
-      };
-    }
-  } catch {
-    // Audio fallback gracefully handled
+    const audio = new Audio(`${BASE_PATH}/win.mp3`);
+    audio.volume = 1.0;
+    audio.play().catch(e => console.warn("Audio play failed:", e));
+  } catch (e) {
+    console.warn("Failed to play audio", e);
   }
 }
