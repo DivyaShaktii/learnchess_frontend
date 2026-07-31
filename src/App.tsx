@@ -8,7 +8,7 @@ import { api } from './services/api';
 import type { MoveAlternative, ThreatPreview } from './services/api';
 import { getMoveSquares } from './utils/chessTranslator';
 import { chessSounds } from './utils/soundEffects';
-import { speakMoveCategory, speakRatingAnnouncement, speakPuzzleStartAnnouncement, speakRefutationWarning, speakGameWon } from './utils/coachVoice';
+import { speakMoveCategory, speakRatingAnnouncement, speakPuzzleStartAnnouncement, speakRefutationWarning, speakGameWon, speakDynamicRefutation } from './utils/coachVoice';
 
 export interface ToastProps {
   message: string;
@@ -610,12 +610,23 @@ function App() {
 
     // 2. Play the opponent's refutation sequence (limit to 3 moves)
     const sequence = refutationSequence.slice(0, 3);
+    const lostPieces: string[] = [];
+    const playerColorShort = playerColor === 'white' ? 'w' : 'b';
+    const pieceNames: Record<string, string> = { p: 'Pawn', n: 'Knight', b: 'Bishop', r: 'Rook', q: 'Queen' };
+
     for (let i = 0; i < sequence.length; i++) {
       await new Promise((resolve) => setTimeout(resolve, 2000));
       try {
         const uci = sequence[i];
         const moveFen = chess.fen();
         const move = chess.move(uci);
+        
+        // Track captured pieces that belonged to the player
+        if (move.captured && move.color !== playerColorShort) {
+          const pieceName = pieceNames[move.captured] || 'Piece';
+          lostPieces.push(pieceName);
+        }
+
         setFen(chess.fen());
         playMoveSoundForUci(moveFen, uci);
         
@@ -628,6 +639,11 @@ function App() {
       } catch {
         break;
       }
+    }
+
+    // Announce dynamic feedback
+    if (coachVoiceEnabled) {
+      speakDynamicRefutation(lostPieces, chess.isCheckmate());
     }
 
     // Wait a bit, then snap back
@@ -715,19 +731,8 @@ function App() {
       return arrows;
     }
 
-    // 3. Piece selection hint arrows (shown ONLY when Learner Mode is ON)
-    const arrows: [string, string, string][] = [];
-    if (squareSuggestions.length > 0) {
-      squareSuggestions.forEach((alt, idx) => {
-        const sq = getMoveSquares(fen, alt.san);
-        if (sq) {
-          const alpha = [0.9, 0.65, 0.4][idx] ?? 0.3;
-          arrows.push([sq.from, sq.to, `rgba(34, 197, 94, ${alpha})`]);
-        }
-      });
-    }
-
-    return arrows;
+    // Piece selection hint arrows have been removed to prevent spoiling the best moves.
+    return [];
   }, [followUpArrows, warningActive, learnerMode, squareSuggestions, threat, alternatives, fen]);
 
   return (

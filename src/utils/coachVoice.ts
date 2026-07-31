@@ -1,4 +1,5 @@
 // Audio playback layer for move classification feedback
+import { speakCoachMessage } from './soundEffects';
 
 const BASE_PATH = "/Chess_Project_Voices";
 
@@ -44,12 +45,11 @@ export function speakRefutationWarning(): void {
 }
 
 export function speakRatingAnnouncement(rating: number, tier: string): void {
-  // Silenced for now as we don't have dynamic rating MP3s
-  // In the future, we can add a generic "game start" sound here
+  speakCoachMessage(`You are playing against a ${rating} rated ${tier} opponent.`);
 }
 
 export function speakPuzzleStartAnnouncement(color: string): void {
-  // Silenced for now as we don't have dynamic puzzle MP3s
+  speakCoachMessage(`You are playing as ${color}.`);
 }
 
 export function speakGameWon(): void {
@@ -61,5 +61,29 @@ export function speakGameWon(): void {
     audio.play().catch(e => console.warn("Audio play failed:", e));
   } catch (e) {
     console.warn("Failed to play audio", e);
+  }
+}
+
+export function speakDynamicRefutation(lostPieces: string[], isCheckmate: boolean): void {
+  if (isCheckmate) {
+    speakCoachMessage("Watch out! This sequence leads directly to checkmate.");
+    return;
+  }
+
+  if (lostPieces.length > 0) {
+    // Determine grammatical formatting (e.g. "Pawn and Rook")
+    let piecesText = "";
+    if (lostPieces.length === 1) {
+      piecesText = lostPieces[0];
+    } else if (lostPieces.length === 2) {
+      piecesText = `${lostPieces[0]} and ${lostPieces[1]}`;
+    } else {
+      const lastPiece = lostPieces.pop();
+      piecesText = `${lostPieces.join(', ')}, and ${lastPiece}`;
+    }
+    
+    speakCoachMessage(`You will lose your ${piecesText} if you make this move.`);
+  } else {
+    speakCoachMessage("You won't lose anything, but you will lose your positional advantage.");
   }
 }

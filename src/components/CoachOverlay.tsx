@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useState, useRef } from 'react';
 import { Lightbulb, Play, ShieldAlert } from 'lucide-react';
 import type { ThreatPreview, MoveAlternative } from '../services/api';
 
@@ -38,6 +38,47 @@ export function CoachOverlay({
   const isBadMove = ['Blunder', 'Mistake', 'Inaccuracy'].includes(classification || '');
   const showFollowUpButton = isBadMove;
 
+  const [position, setPosition] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStartRef = useRef({ x: 0, y: 0, startPosX: 0, startPosY: 0 });
+
+  // Reset position when it becomes visible again
+  useEffect(() => {
+    if (visible) {
+      setPosition({ x: 0, y: 0 });
+    }
+  }, [visible]);
+
+  const handlePointerDown = (e: React.PointerEvent) => {
+    setIsDragging(true);
+    dragStartRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      startPosX: position.x,
+      startPosY: position.y
+    };
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (!isDragging) return;
+    const dx = e.clientX - dragStartRef.current.x;
+    const dy = e.clientY - dragStartRef.current.y;
+    setPosition({
+      x: dragStartRef.current.startPosX + dx,
+      y: dragStartRef.current.startPosY + dy
+    });
+  };
+
+  const handlePointerUp = (e: React.PointerEvent) => {
+    setIsDragging(false);
+    try {
+      (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+    } catch {
+      // Ignore if capture was already released
+    }
+  };
+
   useEffect(() => {
     if (!visible) {
       return;
@@ -72,12 +113,19 @@ export function CoachOverlay({
     >
       <div
         className="pointer-events-auto mx-auto w-full max-w-[560px] overflow-hidden rounded-2xl"
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
         style={{
           background: 'rgba(28, 28, 30, 0.55)',
           backdropFilter: 'blur(8px)',
           border: '1.5px solid rgba(245, 158, 11, 0.5)',
           boxShadow: '0 8px 32px rgba(0,0,0,0.8), 0 0 15px rgba(245, 158, 11, 0.2)',
           animation: 'slideDown 0.25s ease',
+          transform: `translate(${position.x}px, ${position.y}px)`,
+          cursor: isDragging ? 'grabbing' : 'grab',
+          touchAction: 'none' // Prevent scrolling while dragging on touch devices
         }}
       >
         <style>{`
