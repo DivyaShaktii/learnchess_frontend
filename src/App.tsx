@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Chess } from 'chess.js';
-import { AlertCircle, X, RefreshCcw } from 'lucide-react';
+import { AlertCircle, X, RefreshCcw, Bot } from 'lucide-react';
 import { ChessBoardArea } from './components/ChessBoardArea';
 import { CoachOverlay } from './components/CoachOverlay';
 import { MoveLog } from './components/MoveLog';
@@ -59,6 +59,25 @@ function App() {
   const [fen, setFen] = useState(START_FEN);
   const [history, setHistory] = useState<MoveHistoryEntry[]>([]);
 
+  // Subtitles
+  const [coachSubtitleText, setCoachSubtitleText] = useState<string>('');
+
+  useEffect(() => {
+    let timeoutId: NodeJS.Timeout;
+    const handleSubtitle = (e: Event) => {
+      const customEvent = e as CustomEvent<string>;
+      setCoachSubtitleText(customEvent.detail);
+      clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => {
+        setCoachSubtitleText('');
+      }, 8000); // clear subtitle after 8 seconds
+    };
+    window.addEventListener('coach-subtitle', handleSubtitle);
+    return () => {
+      window.removeEventListener('coach-subtitle', handleSubtitle);
+      clearTimeout(timeoutId);
+    };
+  }, []);
 
   const [isThinking, setIsThinking] = useState(false);
   const [isRobotThinking, setIsRobotThinking] = useState(false);
@@ -998,6 +1017,33 @@ function App() {
               </div>
             ) : (
               <MoveLog history={history} playerColor={playerColor} />
+            )}
+
+            {/* Coach Subtitles box pinned to bottom */}
+            {coachSubtitleText && (
+              <div 
+                className="absolute bottom-0 left-0 right-0 border-t border-cyan-900/50 p-4 backdrop-blur-md shadow-[0_-10px_40px_rgba(0,0,0,0.5)] z-20"
+                style={{
+                  background: 'linear-gradient(180deg, rgba(24,24,27,0.95) 0%, rgba(9,9,11,0.98) 100%)',
+                  animation: 'slideUp 0.3s ease-out'
+                }}
+              >
+                <style>{`
+                  @keyframes slideUp {
+                    from { transform: translateY(100%); opacity: 0; }
+                    to { transform: translateY(0); opacity: 1; }
+                  }
+                `}</style>
+                <div className="flex items-start gap-3">
+                  <div className="mt-0.5 rounded-lg bg-cyan-950 p-2 text-cyan-400 border border-cyan-800/50 shadow-inner">
+                    <Bot size={20} />
+                  </div>
+                  <div className="flex-1">
+                    <span className="text-[10px] font-bold text-cyan-500 uppercase tracking-widest mb-1 block">Coach Says</span>
+                    <p className="text-[15px] font-medium text-zinc-200 leading-snug">{coachSubtitleText}</p>
+                  </div>
+                </div>
+              </div>
             )}
           </div>
         </div>

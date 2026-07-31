@@ -1,5 +1,5 @@
 // Audio playback layer for move classification feedback
-import { speakCoachMessage } from './soundEffects';
+import { speakCoachMessage, dispatchSubtitle } from './soundEffects';
 
 const BASE_PATH = "/Chess_Project_Voices";
 
@@ -17,8 +17,24 @@ const AUDIO_FILES: Record<string, string> = {
   Worst: `${BASE_PATH}/That's a serious blunder..mp3`,
 };
 
+const TEXT_MAP: Record<string, string> = {
+  Book: "Book move.",
+  Best: "Best move on the board.",
+  'Best Move': "Best move on the board.",
+  Brilliant: "Brilliant!",
+  Excellent: "Excellent move.",
+  Good: "Good move.",
+  Inaccuracy: "That's a slight inaccuracy.",
+  Mistake: "Watch out, that's a mistake.",
+  Blunder: "That's a blunder.",
+  'Worst Move': "That's a serious blunder.",
+  Worst: "That's a serious blunder.",
+};
+
 export function speakMoveCategory(label: string): void {
   if (typeof window === 'undefined') return;
+
+  dispatchSubtitle(TEXT_MAP[label] || label);
 
   const audioPath = AUDIO_FILES[label];
   if (audioPath) {
@@ -34,6 +50,7 @@ export function speakMoveCategory(label: string): void {
 
 export function speakRefutationWarning(): void {
   if (typeof window === 'undefined') return;
+  dispatchSubtitle("Watch out! Here is their plan.");
 
   try {
     const audio = new Audio(`${BASE_PATH}/Watch out! Here is their plan..mp3`);
@@ -54,6 +71,7 @@ export function speakPuzzleStartAnnouncement(color: string): void {
 
 export function speakGameWon(): void {
   if (typeof window === 'undefined') return;
+  dispatchSubtitle("Checkmate! You win!");
 
   try {
     const audio = new Audio(`${BASE_PATH}/win.mp3`);
