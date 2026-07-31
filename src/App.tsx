@@ -442,7 +442,7 @@ function App() {
         // Play sound now with the original pre-move fen (before setFen updates state)
         playMoveSoundForUci(preMovefen, moveUci);
         if (targetFen) setFen(targetFen);
-        await commitAndFinalize(moveUci);
+        await commitAndFinalize(moveUci, true);
       } catch (err) {
         handleError(err);
       } finally {
@@ -465,7 +465,7 @@ function App() {
     }
   };
 
-  const commitAndFinalize = async (moveUci: string) => {
+  const commitAndFinalize = async (moveUci: string, skipVoice: boolean = false) => {
     if (!gameId) return;
 
     try {
@@ -490,7 +490,7 @@ function App() {
       };
       const cleanLabel = labelMap[label] || label;
       setClassification(cleanLabel);
-      if (coachVoiceEnabled) {
+      if (coachVoiceEnabled && !skipVoice) {
         speakMoveCategory(cleanLabel);
       }
 
