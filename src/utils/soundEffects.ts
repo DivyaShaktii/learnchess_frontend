@@ -89,11 +89,19 @@ class ChessSoundEngine {
 
 export const chessSounds = new ChessSoundEngine();
 
+export function dispatchSubtitle(text: string) {
+  if (typeof window !== 'undefined') {
+    const event = new CustomEvent('coach-subtitle', { detail: { text } });
+    window.dispatchEvent(event);
+  }
+}
+
 // Web Speech API Voice Controller for Coach Feedback
 export function speakCoachMessage(text: string, onEnd?: () => void) {
   if (typeof window === 'undefined' || !('speechSynthesis' in window) || !text) {
     return;
   }
+  dispatchSubtitle(text);
 
   try {
     window.speechSynthesis.cancel();

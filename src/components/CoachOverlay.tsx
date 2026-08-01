@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useState, useRef } from 'react';
 import { Lightbulb, Play, ShieldAlert } from 'lucide-react';
 import type { ThreatPreview, MoveAlternative } from '../services/api';
 
@@ -40,6 +40,32 @@ export function CoachOverlay({
   const isBadMove = ['Blunder', 'Mistake', 'Inaccuracy'].includes(classification || '');
   const showFollowUpButton = isBadMove;
 
+  const [position, setPosition] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStartPos = useRef({ x: 0, y: 0 });
+
+  const handlePointerDown = (e: React.PointerEvent) => {
+    setIsDragging(true);
+    dragStartPos.current = {
+      x: e.clientX - position.x,
+      y: e.clientY - position.y,
+    };
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (!isDragging) return;
+    setPosition({
+      x: e.clientX - dragStartPos.current.x,
+      y: e.clientY - dragStartPos.current.y,
+    });
+  };
+
+  const handlePointerUp = (e: React.PointerEvent) => {
+    setIsDragging(false);
+    (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+  };
+
   useEffect(() => {
     if (!visible) {
       return;
@@ -73,10 +99,17 @@ export function CoachOverlay({
       style={{ top: '20%' }}
     >
       <div
-        className="pointer-events-auto mx-auto w-full max-w-[560px] overflow-hidden rounded-2xl"
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
+        className="pointer-events-auto mx-auto w-fit max-w-[90vw] overflow-hidden rounded-2xl relative"
         style={{
-          background: 'rgba(28, 28, 30, 0.55)',
-          backdropFilter: 'blur(8px)',
+          transform: `translate(${position.x}px, ${position.y}px)`,
+          cursor: isDragging ? 'grabbing' : 'grab',
+          touchAction: 'none',
+          background: 'rgba(28, 28, 30, 0.75)',
+          backdropFilter: 'blur(12px)',
           border: '1.5px solid rgba(245, 158, 11, 0.5)',
           boxShadow: '0 8px 32px rgba(0,0,0,0.8), 0 0 15px rgba(245, 158, 11, 0.2)',
           animation: 'slideDown 0.25s ease',
@@ -109,20 +142,21 @@ export function CoachOverlay({
           {showFollowUpButton && (
             <button
               onClick={onShowFollowUp}
-              className="flex items-center gap-2 rounded-lg border border-zinc-700/80 bg-zinc-800/80 px-4 py-2 text-sm font-bold text-zinc-200 transition-all hover:bg-zinc-700/80"
+              className="flex items-center gap-2 rounded-lg border border-red-900/60 bg-red-950/80 px-4 py-2 text-sm font-bold text-red-400 transition-all hover:bg-red-900/80"
             >
-              <ShieldAlert size={15} className="text-red-400" />
+              <ShieldAlert size={15} />
               Show Follow Up Moves
             </button>
           )}
-
-          <button
-            onClick={handleDismiss}
-            className="ml-auto px-1 text-xs text-zinc-500 transition-colors hover:text-zinc-300"
-          >
-            dismiss
-          </button>
         </div>
+
+        <button
+          onClick={handleDismiss}
+          className="absolute right-2 top-2 p-1 text-xs text-zinc-500 transition-colors hover:text-zinc-300 bg-zinc-900/50 rounded-full"
+          title="Dismiss"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        </button>
       </div>
     </div>
   );

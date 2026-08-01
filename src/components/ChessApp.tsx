@@ -2,15 +2,16 @@
 
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Chess } from 'chess.js';
-import { AlertCircle, X, RefreshCcw } from 'lucide-react';
+import { AlertCircle, X, RefreshCcw, LogIn } from 'lucide-react';
 import { ChessBoardArea } from './ChessBoardArea';
 import { CoachOverlay } from './CoachOverlay';
 import { MoveLog } from './MoveLog';
+import AuthForm from './AuthForm';
 import { api } from '../services/api';
 import type { MoveAlternative, ThreatPreview } from '../services/api';
 import { getMoveSquares } from '../utils/chessTranslator';
 import { chessSounds } from '../utils/soundEffects';
-import { speakMoveCategory, speakRatingAnnouncement, speakPuzzleStartAnnouncement, speakRefutationWarning, speakGameWon } from '../utils/coachVoice';
+import { speakMoveCategory, speakRatingAnnouncement, speakPuzzleStartAnnouncement, speakRefutationWarning, speakGameWon, speakDynamicRefutation } from '../utils/coachVoice';
 
 export interface ToastProps {
   message: string;
@@ -57,9 +58,11 @@ function App() {
   const [learnerMode, setLearnerMode] = useState(true);
   const [coachVoiceEnabled, setCoachVoiceEnabled] = useState(true);
   const [gameId, setGameId] = useState<string | null>(null);
+  const [showLoginModal, setShowLoginModal] = useState(false);
   const [opponentRating, setOpponentRating] = useState(1500);
   const [fen, setFen] = useState(START_FEN);
   const [history, setHistory] = useState<MoveHistoryEntry[]>([]);
+  const [coachSubtitleText, setCoachSubtitleText] = useState<string>('');
 
 
   const [isThinking, setIsThinking] = useState(false);
@@ -94,6 +97,18 @@ function App() {
     } else {
       setCoachVoiceEnabled(true);
     }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handleSubtitle = (e: Event) => {
+      const customEvent = e as CustomEvent<{ text: string }>;
+      setCoachSubtitleText(customEvent.detail.text);
+    };
+    window.addEventListener('coach-subtitle', handleSubtitle);
+    return () => {
+      window.removeEventListener('coach-subtitle', handleSubtitle);
+    };
   }, []);
 
   useEffect(() => {
@@ -444,7 +459,7 @@ function App() {
         // Play sound now with the original pre-move fen (before setFen updates state)
         playMoveSoundForUci(preMovefen, moveUci);
         if (targetFen) setFen(targetFen);
-        await commitAndFinalize(moveUci);
+        await commitAndFinalize(moveUci, true);
       } catch (err) {
         handleError(err);
       } finally {
@@ -467,7 +482,7 @@ function App() {
     }
   };
 
-  const commitAndFinalize = async (moveUci: string) => {
+  const commitAndFinalize = async (moveUci: string, skipVoice: boolean = false) => {
     if (!gameId) return;
 
     try {
@@ -492,7 +507,7 @@ function App() {
       };
       const cleanLabel = labelMap[label] || label;
       setClassification(cleanLabel);
-      if (coachVoiceEnabled) {
+      if (coachVoiceEnabled && !skipVoice) {
         speakMoveCategory(cleanLabel);
       }
 
@@ -593,10 +608,6 @@ function App() {
   const handleShowFollowUp = async () => {
     if (!pendingMoveUci || refutationSequence.length === 0) return;
 
-    if (coachVoiceEnabled) {
-      speakRefutationWarning();
-    }
-
     // Start with the position before the bad move
     const chess = new Chess(previousFenRef.current);
     
@@ -606,6 +617,10 @@ function App() {
       setFen(chess.fen());
       setBadMoveSquare(playerMove.to); // Highlight player's piece in red
       playMoveSoundForUci(previousFenRef.current, pendingMoveUci);
+
+      if (coachVoiceEnabled) {
+        speakDynamicRefutation(refutationSequence, chess.fen());
+      }
     } catch {
       return;
     }
@@ -739,11 +754,8 @@ function App() {
     >
       {toastMessage && <Toast message={toastMessage} onClose={() => setToastMessage(null)} />}
 
-      <div
-        className="flex shrink-0 items-center justify-between border-b border-zinc-800 px-5"
-        style={{ height: '44px', background: '#111' }}
-      >
-        <div className="flex items-center gap-4">
+      <div className="flex h-11 lg:h-14 items-center justify-between border-b border-zinc-800 bg-[#111] px-2 lg:px-4 py-2 shrink-0 overflow-x-auto no-scrollbar">
+        <div className="flex items-center gap-2 lg:gap-3 shrink-0 ml-4">
           <div className="flex items-center gap-2">
             <select
               value={gameMode}
@@ -761,25 +773,25 @@ function App() {
           </div>
 
           {gameMode === 'you_vs_robot' && (
-            <div className="flex items-center gap-3 text-sm border-l border-zinc-800 pl-4">
+            <div className="flex items-center gap-2 text-sm border-l border-zinc-800 pl-4">
               <span className="text-zinc-500">Side:</span>
-              {(['white', 'black'] as const).map((color) => (
-                <label key={color} className="flex cursor-pointer items-center gap-1.5">
-                  <input
-                    type="radio"
-                    name="side"
-                    checked={playerColor === color}
-                    onChange={() => {
-                      setPlayerColor(color);
-                      void startNewGame();
-                    }}
-                    className="accent-white"
-                  />
-                  <span className={`text-sm font-medium ${playerColor === color ? 'text-white' : 'text-zinc-500'}`}>
-                    {color === 'white' ? 'White' : 'Black'}
-                  </span>
-                </label>
-              ))}
+              <button
+                onClick={() => {
+                  setPlayerColor(playerColor === 'white' ? 'black' : 'white');
+                  // We need to wait a tick for state to update before starting new game
+                  setTimeout(() => {
+                    void startNewGame();
+                  }, 0);
+                }}
+                className="flex items-center gap-1.5 px-2 py-1 rounded bg-zinc-800/50 hover:bg-zinc-700/50 text-white font-medium transition-colors"
+                title="Click to toggle side"
+              >
+                <div 
+                  className="w-3 h-3 rounded-full border border-zinc-600" 
+                  style={{ backgroundColor: playerColor === 'white' ? '#fff' : '#222' }}
+                />
+                {playerColor === 'white' ? 'White' : 'Black'}
+              </button>
             </div>
           )}
 
@@ -845,7 +857,7 @@ function App() {
                 lastSpokenMessageRef.current = '';
               }
             }}
-            className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition-all ${
+            className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold whitespace-nowrap shrink-0 transition-all ${
               coachVoiceEnabled
                 ? 'border-cyan-700/60 bg-cyan-900/50 text-cyan-300'
                 : 'border-zinc-700 bg-zinc-800 text-zinc-400'
@@ -860,7 +872,7 @@ function App() {
               setLearnerMode(!learnerMode);
               if (learnerMode) setSquareSuggestions([]);
             }}
-            className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition-all ${
+            className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold whitespace-nowrap shrink-0 transition-all ${
               learnerMode
                 ? 'border-emerald-700/60 bg-emerald-900/50 text-emerald-300'
                 : 'border-zinc-700 bg-zinc-800 text-zinc-500'
@@ -873,103 +885,108 @@ function App() {
           {gameMode === 'you_vs_robot' && (
             <button
               onClick={() => void handleUndoBadMove()}
-              className="flex items-center gap-1.5 rounded-full border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-xs font-semibold text-zinc-200 transition-all hover:bg-zinc-700"
+              className="flex items-center gap-1.5 rounded-full border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-xs font-semibold text-zinc-200 whitespace-nowrap shrink-0 transition-all hover:bg-zinc-700"
             >
               <RefreshCcw size={12} />
               Undo Move
             </button>
           )}
+
+          <button
+            onClick={() => setShowLoginModal(true)}
+            className="flex items-center gap-1.5 rounded-full border border-emerald-600 bg-emerald-600/20 px-4 py-1.5 text-xs font-semibold text-emerald-400 whitespace-nowrap shrink-0 transition-all hover:bg-emerald-600 hover:text-white"
+          >
+            <LogIn size={14} />
+            Login
+          </button>
         </div>
       </div>
 
-      <div className="flex flex-1 items-center justify-center overflow-hidden w-full h-full" style={{ background: '#1a1a1a' }}>
-        <div className="flex h-full w-full items-center justify-center gap-4 p-2" style={{ maxHeight: 'calc(100vh - 44px)' }}>
-          <div
-            className="relative flex-shrink-0 flex items-center justify-center"
-            style={{
-              width: 'min(calc(100vh - 44px - 16px), calc(100vw - 420px - 16px))',
-              height: 'min(calc(100vh - 44px - 16px), calc(100vw - 420px - 16px))',
-            }}
-          >
-            {/* Backend connection overlay — shown when game hasn't started yet */}
-            {(!gameId && !puzzleSessionId) && (
-              <div
-                className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-4 rounded"
-                style={{ background: 'rgba(0,0,0,0.82)', backdropFilter: 'blur(4px)' }}
-              >
-                {isConnecting ? (
-                  <>
-                    <div className="h-10 w-10 animate-spin rounded-full border-4 border-zinc-600 border-t-cyan-400" />
-                    <p className="text-sm font-semibold text-zinc-300">Connecting to coach backend...</p>
-                  </>
-                ) : (
-                  <>
-                    <p className="text-2xl">⚠️</p>
-                    <p className="text-sm font-semibold text-red-300">Backend unreachable</p>
-                    <p className="text-xs text-zinc-500">Make sure the backend is running on port 8000</p>
-                    <button
-                      onClick={() => void startNewGame()}
-                      className="mt-2 rounded-full bg-cyan-600 px-5 py-2 text-sm font-bold text-white transition hover:bg-cyan-500"
-                    >
-                      🔄 Retry Connection
-                    </button>
-                  </>
-                )}
-              </div>
-            )}
+      <div className="flex flex-1 items-start lg:items-center justify-center overflow-y-auto overflow-x-hidden w-full h-full" style={{ background: '#1a1a1a' }}>
+        <div className="flex flex-col lg:flex-row h-max lg:h-full w-full items-center justify-start lg:justify-center gap-4 p-2 pb-10 lg:pb-2 lg:max-h-[calc(100vh-44px)]">
+          {/* Board Container */}
+          <div className="w-full lg:w-auto flex items-center justify-center shrink-0">
+            <div className="relative flex-shrink-0 flex items-center justify-center w-full max-w-[400px] lg:max-w-none lg:w-[min(calc(100vh-60px),calc(100vw-420px))] lg:h-[min(calc(100vh-60px),calc(100vw-420px))] aspect-square">
+              {/* Backend connection overlay — shown when game hasn't started yet */}
+              {(!gameId && !puzzleSessionId) && (
+                <div
+                  className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-4 rounded"
+                  style={{ background: 'rgba(0,0,0,0.82)', backdropFilter: 'blur(4px)' }}
+                >
+                  {isConnecting ? (
+                    <>
+                      <div className="h-10 w-10 animate-spin rounded-full border-4 border-zinc-600 border-t-cyan-400" />
+                      <p className="text-sm font-semibold text-zinc-300">Connecting to coach backend...</p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-2xl">⚠️</p>
+                      <p className="text-sm font-semibold text-red-300">Backend unreachable</p>
+                      <p className="text-xs text-zinc-500">Make sure the backend is running on port 8000</p>
+                      <button
+                        onClick={() => void startNewGame()}
+                        className="mt-2 rounded-full bg-cyan-600 px-5 py-2 text-sm font-bold text-white transition hover:bg-cyan-500"
+                      >
+                        🔄 Retry Connection
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
 
-            {(isRobotThinking || isThinking) && (
-              <div
-                className="absolute top-3 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2.5 rounded-full px-4 py-1.5 text-sm font-semibold shadow-lg"
-                style={{
-                  background: isRobotThinking ? 'rgba(8,145,178,0.92)' : 'rgba(100,100,100,0.85)',
-                  border: isRobotThinking ? '1px solid rgba(34,211,238,0.6)' : '1px solid rgba(180,180,180,0.3)',
-                  color: '#fff',
-                  backdropFilter: 'blur(8px)',
-                }}
-              >
-                <span
-                  className="h-2.5 w-2.5 rounded-full"
-                  style={{ backgroundColor: isRobotThinking ? '#22d3ee' : '#9ca3af', animation: 'ping 1s cubic-bezier(0,0,0.2,1) infinite' }}
-                />
-                {isRobotThinking ? '🤖 Robot is thinking...' : '⏳ Analysing...'}
-              </div>
-            )}
+              {(isRobotThinking || isThinking) && (
+                <div
+                  className="absolute top-3 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2.5 rounded-full px-4 py-1.5 text-sm font-semibold shadow-lg"
+                  style={{
+                    background: isRobotThinking ? 'rgba(8,145,178,0.92)' : 'rgba(100,100,100,0.85)',
+                    border: isRobotThinking ? '1px solid rgba(34,211,238,0.6)' : '1px solid rgba(180,180,180,0.3)',
+                    color: '#fff',
+                    backdropFilter: 'blur(8px)',
+                  }}
+                >
+                  <span
+                    className="h-2.5 w-2.5 rounded-full"
+                    style={{ backgroundColor: isRobotThinking ? '#22d3ee' : '#9ca3af', animation: 'ping 1s cubic-bezier(0,0,0.2,1) infinite' }}
+                  />
+                  {isRobotThinking ? '🤖 Robot is thinking...' : '⏳ Analysing...'}
+                </div>
+              )}
 
-            <ChessBoardArea
-              fen={fen}
-              onMoveAttempt={handleMoveAttempt}
-              onIllegalMove={handleIllegalMove}
-              onPieceSelect={handlePieceSelect}
-              orientation={playerColor}
-              customArrows={boardArrows}
-              isPlayerTurn={isPlayerTurn}
-              badMoveSquare={badMoveSquare}
-              hintSquare={hintSquare}
-              puzzleHintSquare={puzzleHintSquare}
-              opponentThreatSquare={opponentThreatSquare}
-              overlay={
-                <CoachOverlay
-                  visible={overlayVisible}
-                  isThinking={isThinking}
-                  classification={classification}
-                  threat={threat}
-                  alternatives={alternatives}
-                  fen={fen}
-                  moveCount={history.filter((_, i) => (playerColor === 'white' ? i % 2 === 0 : i % 2 === 1)).length + 1}
-                  onCommitWarning={handleCommitWarning}
-                  onDismissWarning={handleDismissWarning}
-                  onCloseOverlay={() => setOverlayVisible(false)}
-                  onAskHint={handleAskHint}
-                  onShowFollowUp={handleShowFollowUp}
-                />
-              }
-            />
+              <ChessBoardArea
+                fen={fen}
+                onMoveAttempt={handleMoveAttempt}
+                onIllegalMove={handleIllegalMove}
+                onPieceSelect={handlePieceSelect}
+                orientation={playerColor}
+                customArrows={boardArrows}
+                isPlayerTurn={isPlayerTurn}
+                badMoveSquare={badMoveSquare}
+                hintSquare={hintSquare}
+                puzzleHintSquare={puzzleHintSquare}
+                opponentThreatSquare={opponentThreatSquare}
+                overlay={
+                  <CoachOverlay
+                    visible={overlayVisible}
+                    isThinking={isThinking}
+                    classification={classification}
+                    threat={threat}
+                    alternatives={alternatives}
+                    fen={fen}
+                    moveCount={history.filter((_, i) => (playerColor === 'white' ? i % 2 === 0 : i % 2 === 1)).length + 1}
+                    onCommitWarning={handleCommitWarning}
+                    onDismissWarning={handleDismissWarning}
+                    onCloseOverlay={() => setOverlayVisible(false)}
+                    onAskHint={handleAskHint}
+                    onShowFollowUp={handleShowFollowUp}
+                  />
+                }
+              />
+            </div>
           </div>
 
           <div
-            className="flex flex-shrink-0 flex-col overflow-hidden rounded-lg border border-zinc-800/60 shadow-2xl relative"
-            style={{ width: '400px', height: 'min(calc(100vh - 44px - 16px), calc(100vw - 420px - 16px))', background: '#0f0f12' }}
+            className="flex flex-shrink-0 flex-col overflow-hidden rounded-lg border border-zinc-800/60 shadow-2xl relative w-full lg:w-[400px] lg:h-[min(calc(100vh-60px),calc(100vw-420px))]"
+            style={{ minHeight: '300px', background: '#0f0f12' }}
           >
             {gameMode === 'puzzle_mode' ? (
               <div className="flex flex-col h-full w-full p-6 text-center justify-center">
@@ -994,11 +1011,34 @@ function App() {
                 )}
               </div>
             ) : (
-              <MoveLog history={history} playerColor={playerColor} />
+              <>
+                <MoveLog history={history} playerColor={playerColor} />
+                {coachSubtitleText && (
+                  <div className="absolute bottom-0 left-0 right-0 p-4 animate-in slide-in-from-bottom-2 fade-in">
+                    <div className="rounded-xl border border-cyan-800/50 bg-cyan-950/90 p-3 shadow-lg backdrop-blur-sm">
+                      <p className="text-xs font-bold uppercase tracking-wider text-cyan-400 mb-1">
+                        Coach Says:
+                      </p>
+                      <p className="text-sm font-medium text-cyan-50">
+                        "{coachSubtitleText}"
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>
       </div>
+
+      {/* Login Modal Overlay */}
+      {showLoginModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-md p-4 sm:p-6">
+          <div className="w-full max-w-md max-h-[90vh] overflow-y-auto no-scrollbar rounded-2xl shadow-2xl relative">
+            <AuthForm onClose={() => setShowLoginModal(false)} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
