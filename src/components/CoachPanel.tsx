@@ -1,3 +1,5 @@
+'use client';
+
 import { useState } from 'react';
 import { SpeechBubble } from './SpeechBubble';
 import type { Persona } from './SpeechBubble';

@@ -1,14 +1,16 @@
+'use client';
+
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Chess } from 'chess.js';
-import { AlertCircle, X, RefreshCcw, Bot } from 'lucide-react';
-import { ChessBoardArea } from './components/ChessBoardArea';
-import { CoachOverlay } from './components/CoachOverlay';
-import { MoveLog } from './components/MoveLog';
-import { api } from './services/api';
-import type { MoveAlternative, ThreatPreview } from './services/api';
-import { getMoveSquares } from './utils/chessTranslator';
-import { chessSounds } from './utils/soundEffects';
-import { speakMoveCategory, speakRatingAnnouncement, speakPuzzleStartAnnouncement, speakRefutationWarning, speakGameWon, speakDynamicRefutation } from './utils/coachVoice';
+import { AlertCircle, X, RefreshCcw } from 'lucide-react';
+import { ChessBoardArea } from './ChessBoardArea';
+import { CoachOverlay } from './CoachOverlay';
+import { MoveLog } from './MoveLog';
+import { api } from '../services/api';
+import type { MoveAlternative, ThreatPreview } from '../services/api';
+import { getMoveSquares } from '../utils/chessTranslator';
+import { chessSounds } from '../utils/soundEffects';
+import { speakMoveCategory, speakRatingAnnouncement, speakPuzzleStartAnnouncement, speakRefutationWarning, speakGameWon } from '../utils/coachVoice';
 
 export interface ToastProps {
   message: string;
@@ -59,25 +61,6 @@ function App() {
   const [fen, setFen] = useState(START_FEN);
   const [history, setHistory] = useState<MoveHistoryEntry[]>([]);
 
-  // Subtitles
-  const [coachSubtitleText, setCoachSubtitleText] = useState<string>('');
-
-  useEffect(() => {
-    let timeoutId: NodeJS.Timeout;
-    const handleSubtitle = (e: Event) => {
-      const customEvent = e as CustomEvent<string>;
-      setCoachSubtitleText(customEvent.detail);
-      clearTimeout(timeoutId);
-      timeoutId = setTimeout(() => {
-        setCoachSubtitleText('');
-      }, 8000); // clear subtitle after 8 seconds
-    };
-    window.addEventListener('coach-subtitle', handleSubtitle);
-    return () => {
-      window.removeEventListener('coach-subtitle', handleSubtitle);
-      clearTimeout(timeoutId);
-    };
-  }, []);
 
   const [isThinking, setIsThinking] = useState(false);
   const [isRobotThinking, setIsRobotThinking] = useState(false);
@@ -461,7 +444,7 @@ function App() {
         // Play sound now with the original pre-move fen (before setFen updates state)
         playMoveSoundForUci(preMovefen, moveUci);
         if (targetFen) setFen(targetFen);
-        await commitAndFinalize(moveUci, true);
+        await commitAndFinalize(moveUci);
       } catch (err) {
         handleError(err);
       } finally {
@@ -484,7 +467,7 @@ function App() {
     }
   };
 
-  const commitAndFinalize = async (moveUci: string, skipVoice: boolean = false) => {
+  const commitAndFinalize = async (moveUci: string) => {
     if (!gameId) return;
 
     try {
@@ -509,7 +492,7 @@ function App() {
       };
       const cleanLabel = labelMap[label] || label;
       setClassification(cleanLabel);
-      if (coachVoiceEnabled && !skipVoice) {
+      if (coachVoiceEnabled) {
         speakMoveCategory(cleanLabel);
       }
 
@@ -629,23 +612,12 @@ function App() {
 
     // 2. Play the opponent's refutation sequence (limit to 3 moves)
     const sequence = refutationSequence.slice(0, 3);
-    const lostPieces: string[] = [];
-    const playerColorShort = playerColor === 'white' ? 'w' : 'b';
-    const pieceNames: Record<string, string> = { p: 'Pawn', n: 'Knight', b: 'Bishop', r: 'Rook', q: 'Queen' };
-
     for (let i = 0; i < sequence.length; i++) {
       await new Promise((resolve) => setTimeout(resolve, 2000));
       try {
         const uci = sequence[i];
         const moveFen = chess.fen();
         const move = chess.move(uci);
-        
-        // Track captured pieces that belonged to the player
-        if (move.captured && move.color !== playerColorShort) {
-          const pieceName = pieceNames[move.captured] || 'Piece';
-          lostPieces.push(pieceName);
-        }
-
         setFen(chess.fen());
         playMoveSoundForUci(moveFen, uci);
         
@@ -658,11 +630,6 @@ function App() {
       } catch {
         break;
       }
-    }
-
-    // Announce dynamic feedback
-    if (coachVoiceEnabled) {
-      speakDynamicRefutation(lostPieces, chess.isCheckmate());
     }
 
     // Wait a bit, then snap back
@@ -750,8 +717,19 @@ function App() {
       return arrows;
     }
 
-    // Piece selection hint arrows have been removed to prevent spoiling the best moves.
-    return [];
+    // 3. Piece selection hint arrows (shown ONLY when Learner Mode is ON)
+    const arrows: [string, string, string][] = [];
+    if (squareSuggestions.length > 0) {
+      squareSuggestions.forEach((alt, idx) => {
+        const sq = getMoveSquares(fen, alt.san);
+        if (sq) {
+          const alpha = [0.9, 0.65, 0.4][idx] ?? 0.3;
+          arrows.push([sq.from, sq.to, `rgba(34, 197, 94, ${alpha})`]);
+        }
+      });
+    }
+
+    return arrows;
   }, [followUpArrows, warningActive, learnerMode, squareSuggestions, threat, alternatives, fen]);
 
   return (
@@ -1017,33 +995,6 @@ function App() {
               </div>
             ) : (
               <MoveLog history={history} playerColor={playerColor} />
-            )}
-
-            {/* Coach Subtitles box pinned to bottom */}
-            {coachSubtitleText && (
-              <div 
-                className="absolute bottom-0 left-0 right-0 border-t border-cyan-900/50 p-4 backdrop-blur-md shadow-[0_-10px_40px_rgba(0,0,0,0.5)] z-20"
-                style={{
-                  background: 'linear-gradient(180deg, rgba(24,24,27,0.95) 0%, rgba(9,9,11,0.98) 100%)',
-                  animation: 'slideUp 0.3s ease-out'
-                }}
-              >
-                <style>{`
-                  @keyframes slideUp {
-                    from { transform: translateY(100%); opacity: 0; }
-                    to { transform: translateY(0); opacity: 1; }
-                  }
-                `}</style>
-                <div className="flex items-start gap-3">
-                  <div className="mt-0.5 rounded-lg bg-cyan-950 p-2 text-cyan-400 border border-cyan-800/50 shadow-inner">
-                    <Bot size={20} />
-                  </div>
-                  <div className="flex-1">
-                    <span className="text-[10px] font-bold text-cyan-500 uppercase tracking-widest mb-1 block">Coach Says</span>
-                    <p className="text-[15px] font-medium text-zinc-200 leading-snug">{coachSubtitleText}</p>
-                  </div>
-                </div>
-              </div>
             )}
           </div>
         </div>
