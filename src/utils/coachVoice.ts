@@ -1,5 +1,5 @@
 // Audio playback layer for move classification feedback
-import { dispatchSubtitle, speakCoachMessage } from './soundEffects';
+import { dispatchSubtitle, clearSubtitleAfter, speakCoachMessage } from './soundEffects';
 import { Chess } from 'chess.js';
 
 const BASE_PATH = "/Chess_Project_Voices";
@@ -12,7 +12,7 @@ const AUDIO_FILES: Record<string, string> = {
   Excellent: `${BASE_PATH}/Excellent move.mp3`,
   Good: `${BASE_PATH}/Good move.mp3`,
   Inaccuracy: `${BASE_PATH}/That's a slight inaccuracy.mp3`,
-  Mistake: `${BASE_PATH}/Watch out that's a mistake.mp3`,
+  Mistake: `${BASE_PATH}/Hold on, that's a mistake. Don't rush take a moment to rethink your strategy and try to find a better move.mp3`,
   Blunder: `${BASE_PATH}/That's a blunder..mp3`,
   'Worst Move': `${BASE_PATH}/That's a serious blunder..mp3`,
   Worst: `${BASE_PATH}/That's a serious blunder..mp3`,
@@ -29,6 +29,7 @@ export function speakMoveCategory(label: string): void {
 
       const audio = new Audio(audioPath);
       audio.volume = 1.0;
+      audio.onended = () => clearSubtitleAfter(2000);
       audio.play().catch(e => console.warn("Audio play failed:", e));
     } catch (e) {
       console.warn("Failed to play audio", e);
@@ -43,6 +44,7 @@ export function speakRefutationWarning(): void {
     dispatchSubtitle("Watch out! Here is their plan.");
     const audio = new Audio(`${BASE_PATH}/Watch out! Here is their plan..mp3`);
     audio.volume = 1.0;
+    audio.onended = () => clearSubtitleAfter(2000);
     audio.play().catch(e => console.warn("Audio play failed:", e));
   } catch (e) {
     console.warn("Failed to play audio", e);
@@ -66,6 +68,7 @@ export function speakGameWon(): void {
     dispatchSubtitle("You win!");
     const audio = new Audio(`${BASE_PATH}/win.mp3`);
     audio.volume = 1.0;
+    audio.onended = () => clearSubtitleAfter(2000);
     audio.play().catch(e => console.warn("Audio play failed:", e));
   } catch (e) {
     console.warn("Failed to play audio", e);

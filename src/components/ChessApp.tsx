@@ -426,8 +426,12 @@ function App() {
           }
           setBadMoveSquare(move.to);
           setWarningActive(true);
-          setOverlayVisible(true);
-          setIsThinking(false);
+          
+          // Delay the overlay to let the player think
+          setTimeout(() => {
+            setOverlayVisible(true);
+            setIsThinking(false);
+          }, 4000);
           return;
         }
 
@@ -1012,9 +1016,8 @@ function App() {
               </div>
             ) : (
               <>
-                <MoveLog history={history} playerColor={playerColor} />
                 {coachSubtitleText && (
-                  <div className="absolute bottom-0 left-0 right-0 p-4 animate-in slide-in-from-bottom-2 fade-in">
+                  <div className="p-4 animate-in slide-in-from-top-2 fade-in shrink-0 z-10">
                     <div className="rounded-xl border border-cyan-800/50 bg-cyan-950/90 p-3 shadow-lg backdrop-blur-sm">
                       <p className="text-xs font-bold uppercase tracking-wider text-cyan-400 mb-1">
                         Coach Says:
@@ -1025,6 +1028,7 @@ function App() {
                     </div>
                   </div>
                 )}
+                <MoveLog history={history} playerColor={playerColor} />
               </>
             )}
           </div>

@@ -89,8 +89,18 @@ class ChessSoundEngine {
 
 export const chessSounds = new ChessSoundEngine();
 
+let subtitleTimeout: NodeJS.Timeout | null = null;
+
+export function clearSubtitleAfter(ms: number) {
+  if (subtitleTimeout) clearTimeout(subtitleTimeout);
+  subtitleTimeout = setTimeout(() => {
+    dispatchSubtitle('');
+  }, ms);
+}
+
 export function dispatchSubtitle(text: string) {
   if (typeof window !== 'undefined') {
+    if (subtitleTimeout) clearTimeout(subtitleTimeout);
     const event = new CustomEvent('coach-subtitle', { detail: { text } });
     window.dispatchEvent(event);
   }
@@ -109,9 +119,10 @@ export function speakCoachMessage(text: string, onEnd?: () => void) {
     const utterance = new SpeechSynthesisUtterance(text);
     const voices = window.speechSynthesis.getVoices();
 
-    // Prefer English natural voices
+    // Prioritize explicitly male-sounding or male-named voices installed on the OS
     const preferredVoice =
-      voices.find((v) => /en/i.test(v.lang) && /natural|aria|google us english|zira|samantha/i.test(v.name)) ||
+      voices.find((v) => /en/i.test(v.lang) && /male|man|david|mark|guy|matthew|brian|george|arthur|james/i.test(v.name)) ||
+      voices.find((v) => /en/i.test(v.lang) && /natural|google us english/i.test(v.name)) ||
       voices.find((v) => /en/i.test(v.lang)) ||
       voices[0];
 
@@ -123,9 +134,10 @@ export function speakCoachMessage(text: string, onEnd?: () => void) {
     utterance.pitch = 1.0;
     utterance.volume = 1.0;
 
-    if (onEnd) {
-      utterance.onend = onEnd;
-    }
+    utterance.onend = () => {
+      clearSubtitleAfter(2000);
+      if (onEnd) onEnd();
+    };
 
     window.speechSynthesis.speak(utterance);
   } catch {
