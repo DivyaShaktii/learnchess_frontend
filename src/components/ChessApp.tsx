@@ -61,10 +61,9 @@ function App() {
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [opponentRating, setOpponentRating] = useState(1500);
   const [fen, setFen] = useState(START_FEN);
+  const [initialFen, setInitialFen] = useState(START_FEN);
   const [history, setHistory] = useState<MoveHistoryEntry[]>([]);
   const [coachSubtitleText, setCoachSubtitleText] = useState<string>('');
-
-
   const [isThinking, setIsThinking] = useState(false);
   const [isRobotThinking, setIsRobotThinking] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -116,6 +115,18 @@ function App() {
     window.localStorage.setItem('coach-voice-enabled', String(coachVoiceEnabled));
   }, [coachVoiceEnabled]);
 
+  // Automatically save move history to the backend for the terminal video generator
+  useEffect(() => {
+    if (history.length > 0) {
+      const moveList = history.map(h => h.san);
+      fetch('/api/save-history', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ moveList, initialFen })
+      }).catch(err => console.error('Failed to save move history:', err));
+    }
+  }, [history, initialFen]);
+
   useEffect(() => {
     if (!coachVoiceEnabled && typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
@@ -154,6 +165,7 @@ function App() {
           if (!cancelled) {
             setPuzzleSessionId(res.session_id);
             setFen(res.fen);
+            setInitialFen(res.fen);
             setPlayerColor(res.side_to_move as 'white' | 'black');
             setHistory([]);
             resetWarningState();
@@ -167,6 +179,7 @@ function App() {
           if (!cancelled) {
             setGameId(res.game_id);
             setFen(res.fen);
+            setInitialFen(res.fen);
             setHistory([]);
             resetWarningState();
             previousFenRef.current = res.fen;
@@ -362,10 +375,21 @@ function App() {
               setFen(nextFen); 
               previousFenRef.current = nextFen;
               
+              // Add player move to history
+              setHistory(prev => [...prev, { san: move.san, classification: 'Best Move' }]);
+              
               if (res.opponent_reply_uci) {
                  setTimeout(() => {
+                    const opponentChess = new Chess(nextFen);
+                    const oppMove = opponentChess.move(res.opponent_reply_uci);
+                    
                     setFen(res.fen);
                     previousFenRef.current = res.fen;
+                    
+                    if (oppMove) {
+                      setHistory(prev => [...prev, { san: oppMove.san, classification: 'Move' }]);
+                    }
+                    
                     playMoveSoundForUci(nextFen, res.opponent_reply_uci!);
                  }, 400);
               } else if (res.solved) {

@@ -6,15 +6,18 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "remotion:build": "node scripts/build-video.js"
   },
   "dependencies": {
+    "@remotion/cli": "^4.0.505",
     "chess.js": "^1.0.0",
     "lucide-react": "^0.383.0",
     "next": "^15.0.0",
     "react": "^19.2.8",
     "react-chessboard": "^4.7.2",
     "react-dom": "^19.2.8",
+    "remotion": "^4.0.505",
     "tailwind-merge": "^2.5.2"
   },
   "devDependencies": {
@@ -22,6 +25,8 @@
     "@types/node": "^20.14.0",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
+    "ajv": "^8.20.0",
+    "ajv-keywords": "^5.1.0",
     "eslint": "^8.57.0",
     "eslint-config-next": "^15.0.0",
     "tailwindcss": "^4.0.0",

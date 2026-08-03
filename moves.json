@@ -1,0 +1,13 @@
+{
+  "moveList": [
+    "e3g3",
+    "g1f2",
+    "g3g5",
+    "c3b5",
+    "d6d7",
+    "c1c7",
+    "d7d8",
+    "c7f7"
+  ],
+  "initialFen": "8/5r2/1p1kpP2/n2p2P1/3P4/1PN1r3/P7/2R3K1 b - - 1 30"
+}
