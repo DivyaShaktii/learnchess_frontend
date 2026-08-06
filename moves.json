@@ -1,13 +1,21 @@
 {
   "moveList": [
-    "e3g3",
-    "g1f2",
-    "g3g5",
-    "c3b5",
-    "d6d7",
-    "c1c7",
-    "d7d8",
-    "c7f7"
+    "d4",
+    "Nf6",
+    "Nc3",
+    "d5",
+    "e3",
+    "Nbd7",
+    "f4",
+    "e6",
+    "Nf3",
+    "b6",
+    "Bd2",
+    "c5",
+    "Bd3",
+    "Be7",
+    "O-O",
+    "O-O"
   ],
-  "initialFen": "8/5r2/1p1kpP2/n2p2P1/3P4/1PN1r3/P7/2R3K1 b - - 1 30"
+  "initialFen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 }

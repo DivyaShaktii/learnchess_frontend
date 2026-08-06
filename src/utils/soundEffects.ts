@@ -106,17 +106,26 @@ export function dispatchSubtitle(text: string) {
   }
 }
 
+let currentUtterance: SpeechSynthesisUtterance | null = null;
+
 // Web Speech API Voice Controller for Coach Feedback
-export function speakCoachMessage(text: string, onEnd?: () => void) {
-  if (typeof window === 'undefined' || !('speechSynthesis' in window) || !text) {
+export function speakCoachMessage(text: string, onEnd?: () => void, playAudio: boolean = true) {
+  if (typeof window === 'undefined' || !text) {
     return;
   }
   dispatchSubtitle(text);
+
+  if (!playAudio || !('speechSynthesis' in window)) {
+    clearSubtitleAfter(5000);
+    if (onEnd) onEnd();
+    return;
+  }
 
   try {
     window.speechSynthesis.cancel();
 
     const utterance = new SpeechSynthesisUtterance(text);
+    currentUtterance = utterance; // Keep a reference to prevent garbage collection
     const voices = window.speechSynthesis.getVoices();
 
     // Prioritize explicitly male-sounding or male-named voices installed on the OS

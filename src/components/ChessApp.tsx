@@ -185,9 +185,7 @@ function App() {
             previousFenRef.current = res.fen;
             setToastMessage(null);
             setPuzzleSessionId(null);
-            if (coachVoiceEnabled) {
-              speakRatingAnnouncement(opponentRating, ratingTier(opponentRating));
-            }
+            speakRatingAnnouncement(opponentRating, ratingTier(opponentRating), coachVoiceEnabled);
           }
         }
       } catch {
@@ -260,9 +258,7 @@ function App() {
         previousFenRef.current = res.fen;
         setToastMessage(null);
         setGameId(null);
-        if (coachVoiceEnabled) {
-          speakPuzzleStartAnnouncement(res.side_to_move);
-        }
+        speakPuzzleStartAnnouncement(res.side_to_move, coachVoiceEnabled);
       } else {
         const res = await api.startNewGame(undefined, opponentRating);
         setGameId(res.game_id);
@@ -272,9 +268,7 @@ function App() {
         setToastMessage(null);
         setPuzzleSessionId(null);
         setPuzzleHintSquare(null);
-        if (coachVoiceEnabled) {
-          speakRatingAnnouncement(opponentRating, ratingTier(opponentRating));
-        }
+        speakRatingAnnouncement(opponentRating, ratingTier(opponentRating), coachVoiceEnabled);
       }
     } catch (err) {
       handleError(err);
@@ -394,7 +388,7 @@ function App() {
                  }, 400);
               } else if (res.solved) {
                  setToastMessage('🎉 Puzzle Solved!');
-                 if (coachVoiceEnabled) speakGameWon();
+                 speakGameWon(coachVoiceEnabled);
                  setTimeout(() => {
                    void startNewGame();
                  }, 2000);
@@ -445,9 +439,7 @@ function App() {
         const isBoxTier = Boolean(preRes.is_box_tier);
 
         if (isBoxTier) {
-          if (coachVoiceEnabled) {
-            speakMoveCategory(preRes.label);
-          }
+          speakMoveCategory(preRes.label, coachVoiceEnabled, preRes.explanation);
           setBadMoveSquare(move.to);
           setWarningActive(true);
           
@@ -535,8 +527,8 @@ function App() {
       };
       const cleanLabel = labelMap[label] || label;
       setClassification(cleanLabel);
-      if (coachVoiceEnabled && !skipVoice) {
-        speakMoveCategory(cleanLabel);
+      if (!skipVoice) {
+        speakMoveCategory(cleanLabel, coachVoiceEnabled, commitRes.explanation);
       }
 
       setOverlayVisible(false);
@@ -550,8 +542,8 @@ function App() {
         if (chess.isCheckmate()) {
           const winner = chess.turn() === 'w' ? 'Black' : 'White';
           msg = `🏆 Checkmate! ${winner} wins the game!`;
-          if (winner.toLowerCase() === playerColor && coachVoiceEnabled) {
-            speakGameWon();
+          if (winner.toLowerCase() === playerColor) {
+            speakGameWon(coachVoiceEnabled);
           }
         } else if (chess.isDraw()) {
           msg = '🤝 Game Over! The game ended in a draw.';
@@ -583,8 +575,8 @@ function App() {
         if (chess.isCheckmate()) {
           const winner = chess.turn() === 'w' ? 'Black' : 'White';
           msg = `🏆 Checkmate! ${winner} wins the game!`;
-          if (winner.toLowerCase() === playerColor && coachVoiceEnabled) {
-            speakGameWon();
+          if (winner.toLowerCase() === playerColor) {
+            speakGameWon(coachVoiceEnabled);
           }
         } else if (chess.isDraw()) {
           msg = '🤝 Game Over! The game ended in a draw.';
@@ -646,9 +638,7 @@ function App() {
       setBadMoveSquare(playerMove.to); // Highlight player's piece in red
       playMoveSoundForUci(previousFenRef.current, pendingMoveUci);
 
-      if (coachVoiceEnabled) {
-        speakDynamicRefutation(refutationSequence, chess.fen());
-      }
+      speakDynamicRefutation(refutationSequence, chess.fen(), coachVoiceEnabled);
     } catch {
       return;
     }
@@ -1040,7 +1030,7 @@ function App() {
               </div>
             ) : (
               <>
-                {coachSubtitleText && (
+                {(!coachVoiceEnabled && coachSubtitleText) && (
                   <div className="p-4 animate-in slide-in-from-top-2 fade-in shrink-0 z-10">
                     <div className="rounded-xl border border-cyan-800/50 bg-cyan-950/90 p-3 shadow-lg backdrop-blur-sm">
                       <p className="text-xs font-bold uppercase tracking-wider text-cyan-400 mb-1">

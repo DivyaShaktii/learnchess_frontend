@@ -18,8 +18,13 @@ const AUDIO_FILES: Record<string, string> = {
   Worst: `${BASE_PATH}/That's a serious blunder..mp3`,
 };
 
-export function speakMoveCategory(label: string): void {
+export function speakMoveCategory(label: string, playAudio: boolean = true, fallbackText?: string): void {
   if (typeof window === 'undefined') return;
+
+  if ((label === "Opening Principle" || label === "Opening Pawn Warning") && fallbackText) {
+    speakCoachMessage(fallbackText, undefined, playAudio);
+    return;
+  }
 
   const audioPath = AUDIO_FILES[label];
   if (audioPath) {
@@ -27,55 +32,67 @@ export function speakMoveCategory(label: string): void {
       const cleanText = audioPath.replace(BASE_PATH + '/', '').replace('.mp3', '');
       dispatchSubtitle(cleanText);
 
-      const audio = new Audio(audioPath);
-      audio.volume = 1.0;
-      audio.onended = () => clearSubtitleAfter(2000);
-      audio.play().catch(e => console.warn("Audio play failed:", e));
+      if (playAudio) {
+        const audio = new Audio(audioPath);
+        audio.volume = 1.0;
+        audio.onended = () => clearSubtitleAfter(2000);
+        audio.play().catch(e => console.warn("Audio play failed:", e));
+      } else {
+        clearSubtitleAfter(5000);
+      }
     } catch (e) {
       console.warn("Failed to play audio", e);
     }
   }
 }
 
-export function speakRefutationWarning(): void {
+export function speakRefutationWarning(playAudio: boolean = true): void {
   if (typeof window === 'undefined') return;
 
   try {
     dispatchSubtitle("Watch out! Here is their plan.");
-    const audio = new Audio(`${BASE_PATH}/Watch out! Here is their plan..mp3`);
-    audio.volume = 1.0;
-    audio.onended = () => clearSubtitleAfter(2000);
-    audio.play().catch(e => console.warn("Audio play failed:", e));
+    if (playAudio) {
+      const audio = new Audio(`${BASE_PATH}/Watch out! Here is their plan..mp3`);
+      audio.volume = 1.0;
+      audio.onended = () => clearSubtitleAfter(2000);
+      audio.play().catch(e => console.warn("Audio play failed:", e));
+    } else {
+      clearSubtitleAfter(5000);
+    }
   } catch (e) {
     console.warn("Failed to play audio", e);
   }
 }
 
-export function speakRatingAnnouncement(rating: number, tier: string): void {
+export function speakRatingAnnouncement(rating: number, tier: string, playAudio: boolean = true): void {
   if (typeof window === 'undefined') return;
-  speakCoachMessage(`${tier} Mode, Rating ${rating}`);
+  speakCoachMessage(`${tier} Mode, Rating ${rating}`, undefined, playAudio);
 }
 
-export function speakPuzzleStartAnnouncement(color: string): void {
+export function speakPuzzleStartAnnouncement(color: string, playAudio: boolean = true): void {
   if (typeof window === 'undefined') return;
-  speakCoachMessage(`Playing as ${color}. Find the best sequence of moves!`);
+  speakCoachMessage(`Playing as ${color}. Find the best sequence of moves!`, undefined, playAudio);
 }
 
-export function speakGameWon(): void {
+export function speakGameWon(playAudio: boolean = true): void {
   if (typeof window === 'undefined') return;
 
   try {
     dispatchSubtitle("You win!");
-    const audio = new Audio(`${BASE_PATH}/win.mp3`);
-    audio.volume = 1.0;
-    audio.onended = () => clearSubtitleAfter(2000);
-    audio.play().catch(e => console.warn("Audio play failed:", e));
+    if (playAudio) {
+      const audio = new Audio(`${BASE_PATH}/win.mp3`);
+      audio.volume = 1.0;
+      audio.onended = () => clearSubtitleAfter(2000);
+      audio.play().catch(e => console.warn("Audio play failed:", e));
+    } else {
+      clearSubtitleAfter(5000);
+    }
   } catch (e) {
     console.warn("Failed to play audio", e);
   }
 }
 
-export function speakDynamicRefutation(refutationSequence: string[], currentFen: string): void {
+export function speakDynamicRefutation(refutationSequence: string[], currentFen: string, playAudio: boolean = true): void {
   if (typeof window === 'undefined' || refutationSequence.length === 0) return;
   
   try {
@@ -104,12 +121,12 @@ export function speakDynamicRefutation(refutationSequence: string[], currentFen:
       if (piecesList.length > 1) {
         piecesText = piecesList.slice(0, -1).join(', ') + ' and ' + piecesList[piecesList.length - 1];
       }
-      speakCoachMessage(`Watch out! You will lose your ${piecesText} if you make this move.`);
+      speakCoachMessage(`Watch out! You will lose your ${piecesText} if you make this move.`, undefined, playAudio);
     } else {
-      speakCoachMessage(`You won't lose any pieces immediately, but you will lose your positional advantage.`);
+      speakCoachMessage(`You won't lose any pieces immediately, but you will lose your positional advantage.`, undefined, playAudio);
     }
   } catch (err) {
     console.warn("Failed to generate dynamic refutation voice", err);
-    speakRefutationWarning();
+    speakRefutationWarning(playAudio);
   }
 }
