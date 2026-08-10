@@ -37,7 +37,7 @@ export function CoachOverlay({
   onAskHint,
   onShowFollowUp,
 }: CoachOverlayProps) {
-  const isBadMove = ['Blunder', 'Mistake', 'Inaccuracy'].includes(classification || '');
+  const isBadMove = ['Blunder', 'Mistake', 'Inaccuracy', 'Opening Pawn Warning'].includes(classification || '');
   const showFollowUpButton = isBadMove;
 
   const [position, setPosition] = useState({ x: 0, y: 0 });

@@ -6,9 +6,9 @@ const BASE_PATH = "/Chess_Project_Voices";
 
 const AUDIO_FILES: Record<string, string> = {
   Book: `${BASE_PATH}/Book.mp3`,
-  Best: `${BASE_PATH}/Best Move On th Board.mp3`,
-  'Best Move': `${BASE_PATH}/Best Move On th Board.mp3`,
-  Brilliant: `${BASE_PATH}/Brilliant.mp3`,
+  Best: `${BASE_PATH}/Good move.mp3`,
+  'Best Move': `${BASE_PATH}/Good move.mp3`,
+  Brilliant: `${BASE_PATH}/Good move.mp3`,
   Excellent: `${BASE_PATH}/Excellent move.mp3`,
   Good: `${BASE_PATH}/Good move.mp3`,
   Inaccuracy: `${BASE_PATH}/That's a slight inaccuracy.mp3`,

@@ -26,6 +26,7 @@ const classConfig: Record<string, { emoji: string; color: string; glow: string; 
   Mistake:     { emoji: '✗',  color: '#fb923c', glow: 'rgba(251,146,60,0.3)',  bg: 'rgba(194,65,12,0.15)'  },
   Blunder:     { emoji: '💀', color: '#f87171', glow: 'rgba(248,113,113,0.35)', bg: 'rgba(185,28,28,0.18)'  },
   'Worst Move':{ emoji: '💀', color: '#f87171', glow: 'rgba(248,113,113,0.35)', bg: 'rgba(185,28,28,0.18)'  },
+  'Opening Pawn Warning': { emoji: '⚠️', color: '#fbbf24', glow: 'rgba(251,191,36,0.3)', bg: 'rgba(180,83,9,0.15)' },
 };
 
 // Human-friendly label names
@@ -40,6 +41,7 @@ const friendlyLabel: Record<string, string> = {
   Mistake:      'Mistake ✗',
   Blunder:      'Big Mistake 💀',
   'Worst Move': 'Big Mistake 💀',
+  'Opening Pawn Warning': 'Opening Warning ⚠️',
 };
 
 const getConfig = (c: string) =>
