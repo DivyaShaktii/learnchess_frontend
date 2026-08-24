@@ -7,6 +7,8 @@ import { ChessBoardArea } from './ChessBoardArea';
 import { CoachOverlay } from './CoachOverlay';
 import { MoveLog } from './MoveLog';
 import AuthForm from './AuthForm';
+import { useSession } from '../utils/useSession';
+import { PaymentOverlay } from './PaymentOverlay';
 import { api } from '../services/api';
 import type { MoveAlternative, ThreatPreview } from '../services/api';
 import { getMoveSquares } from '../utils/chessTranslator';
@@ -51,6 +53,7 @@ const ratingTier = (r: number) =>
   r < 2600 ? 'Expert' : r < 2900 ? 'Master' : 'Near-Maximum (very hard)';
 
 function App() {
+  const { session, isPremium, loading: sessionLoading, fetchPremiumStatus, logout } = useSession();
   const [gameMode, setGameMode] = useState<GameMode>('you_vs_robot');
   const [puzzleLevel, setPuzzleLevel] = useState(1);
   const [puzzleSessionId, setPuzzleSessionId] = useState<string | null>(null);
@@ -58,7 +61,6 @@ function App() {
   const [learnerMode, setLearnerMode] = useState(true);
   const [coachVoiceEnabled, setCoachVoiceEnabled] = useState(true);
   const [gameId, setGameId] = useState<string | null>(null);
-  const [showLoginModal, setShowLoginModal] = useState(false);
   const [opponentRating, setOpponentRating] = useState(1500);
   const [fen, setFen] = useState(START_FEN);
   const [initialFen, setInitialFen] = useState(START_FEN);
@@ -68,6 +70,7 @@ function App() {
   const [isRobotThinking, setIsRobotThinking] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
+  const [showPaywallModal, setShowPaywallModal] = useState(false);
   const [overlayVisible, setOverlayVisible] = useState(false);
   const [warningActive, setWarningActive] = useState(false);
   const [pendingMoveUci, setPendingMoveUci] = useState<string | null>(null);
@@ -132,6 +135,12 @@ function App() {
       window.speechSynthesis.cancel();
     }
   }, [coachVoiceEnabled]);
+
+  // Use refs to avoid stale closures if react-chessboard memoizes the onPieceDrop callback
+  const stateRef = useRef({ history, session, isPremium });
+  useEffect(() => {
+    stateRef.current = { history, session, isPremium };
+  }, [history, session, isPremium]);
 
   const isPlayerTurn = useMemo(() => {
     try {
@@ -330,7 +339,23 @@ function App() {
     }
   }, []);
 
+  const handleInteractionAttempt = () => {
+    const { session: currentSession, isPremium: currentIsPremium } = stateRef.current;
+    
+    const userEmail = currentSession?.user?.email?.toLowerCase().trim();
+    const isDevBypass = userEmail === 'janhavikolekar280@gmail.com';
+
+    // Immediate paywall: 0 free moves!
+    if (!currentSession || (!currentIsPremium && !isDevBypass)) {
+      setShowPaywallModal(true);
+      return false;
+    }
+    return true;
+  };
+
   const handleMoveAttempt = (sourceSquare: string, targetSquare: string, piece: string) => {
+    if (!handleInteractionAttempt()) return false;
+
     if (isThinking || isRobotThinking) return false;
     if (!gameId && !puzzleSessionId) return false;
 
@@ -528,7 +553,7 @@ function App() {
       const cleanLabel = labelMap[label] || label;
       setClassification(cleanLabel);
       if (!skipVoice) {
-        speakMoveCategory(cleanLabel, coachVoiceEnabled, commitRes.explanation);
+        speakMoveCategory(cleanLabel, coachVoiceEnabled);
       }
 
       setOverlayVisible(false);
@@ -765,6 +790,10 @@ function App() {
     return arrows;
   }, [followUpArrows, warningActive, learnerMode, squareSuggestions, threat, alternatives, fen]);
 
+  if (sessionLoading) {
+    return <div className="flex h-screen items-center justify-center bg-[#1a1a1a] text-white">Loading...</div>;
+  }
+
   return (
     <div
       className="flex h-screen flex-col overflow-hidden text-zinc-100"
@@ -910,13 +939,26 @@ function App() {
             </button>
           )}
 
-          <button
-            onClick={() => setShowLoginModal(true)}
-            className="flex items-center gap-1.5 rounded-full border border-emerald-600 bg-emerald-600/20 px-4 py-1.5 text-xs font-semibold text-emerald-400 whitespace-nowrap shrink-0 transition-all hover:bg-emerald-600 hover:text-white"
-          >
-            <LogIn size={14} />
-            Login
-          </button>
+          {session ? (
+            <button
+              onClick={async () => {
+                await logout();
+                window.location.reload(); // Refresh to clear state
+              }}
+              className="flex items-center gap-1.5 rounded-full border border-red-600 bg-red-600/20 px-4 py-1.5 text-xs font-semibold text-red-400 whitespace-nowrap shrink-0 transition-all hover:bg-red-600 hover:text-white"
+            >
+              <LogIn size={14} className="rotate-180" />
+              Logout
+            </button>
+          ) : (
+            <button
+              onClick={() => setShowPaywallModal(true)}
+              className="flex items-center gap-1.5 rounded-full border border-emerald-600 bg-emerald-600/20 px-4 py-1.5 text-xs font-semibold text-emerald-400 whitespace-nowrap shrink-0 transition-all hover:bg-emerald-600 hover:text-white"
+            >
+              <LogIn size={14} />
+              Login / Sign Up
+            </button>
+          )}
         </div>
       </div>
 
@@ -973,6 +1015,7 @@ function App() {
               <ChessBoardArea
                 fen={fen}
                 onMoveAttempt={handleMoveAttempt}
+                onInteractionAttempt={handleInteractionAttempt}
                 onIllegalMove={handleIllegalMove}
                 onPieceSelect={handlePieceSelect}
                 orientation={playerColor}
@@ -1049,14 +1092,37 @@ function App() {
         </div>
       </div>
 
-      {/* Login Modal Overlay */}
-      {showLoginModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-md p-4 sm:p-6">
-          <div className="w-full max-w-md max-h-[90vh] overflow-y-auto no-scrollbar rounded-2xl shadow-2xl relative">
-            <AuthForm onClose={() => setShowLoginModal(false)} />
-          </div>
+      {/* Auth / Paywall Modal */}
+      {showPaywallModal && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+          {!session ? (
+            <div className="w-full max-w-md">
+              <AuthForm onClose={() => setShowPaywallModal(false)} />
+            </div>
+          ) : (
+            <div className="w-full max-w-md relative">
+              <button 
+                onClick={() => {
+                  logout();
+                  setShowPaywallModal(false);
+                }}
+                className="absolute right-4 top-4 z-10 text-zinc-500 hover:text-white transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+              <PaymentOverlay 
+                userId={session.user.id} 
+                onSuccess={() => {
+                  fetchPremiumStatus(session.user.id);
+                  setShowPaywallModal(false);
+                }} 
+                onLogout={logout} 
+              />
+            </div>
+          )}
         </div>
       )}
+
     </div>
   );
 }

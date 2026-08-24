@@ -167,4 +167,25 @@ export const api = {
   async getPuzzleHint(sessionId: string): Promise<PuzzleHintResponse> {
     return fetchWithCheck(`${API_BASE}/api/puzzles/hint/${sessionId}`);
   },
+
+  async createRazorpayOrder(userId: string): Promise<{ order_id: string; amount: number; currency: string }> {
+    return fetchWithCheck(`${API_BASE}/api/payment/create-order`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId }),
+    });
+  },
+
+  async verifyRazorpayPayment(orderId: string, paymentId: string, signature: string, userId: string): Promise<{ status: string }> {
+    return fetchWithCheck(`${API_BASE}/api/payment/verify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        razorpay_order_id: orderId,
+        razorpay_payment_id: paymentId,
+        razorpay_signature: signature,
+        user_id: userId,
+      }),
+    });
+  },
 };

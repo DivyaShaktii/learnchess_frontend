@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next';
+import Script from 'next/script';
 import './globals.css';
 
 // TODO: replace with your real production domain before deploying.
@@ -51,7 +52,10 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <Script src="https://checkout.razorpay.com/v1/checkout.js" strategy="beforeInteractive" />
+        {children}
+      </body>
     </html>
   );
 }

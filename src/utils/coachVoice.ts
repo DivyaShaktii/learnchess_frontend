@@ -105,7 +105,7 @@ export function speakDynamicRefutation(refutationSequence: string[], currentFen:
       
       // If it's the opponent's turn (i is even) and they captured something
       if (i % 2 === 0 && move.captured) {
-        let pieceName = move.captured;
+        let pieceName: string = move.captured;
         if (pieceName === 'p') pieceName = 'pawn';
         if (pieceName === 'n') pieceName = 'knight';
         if (pieceName === 'b') pieceName = 'bishop';

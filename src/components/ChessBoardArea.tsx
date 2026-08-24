@@ -17,6 +17,7 @@ interface ChessBoardAreaProps {
   hintSquare?: string | null;
   puzzleHintSquare?: string | null;
   opponentThreatSquare?: string | null;
+  onInteractionAttempt?: () => boolean;
   overlay?: React.ReactNode;
 }
 
@@ -32,6 +33,7 @@ export function ChessBoardArea({
   hintSquare,
   puzzleHintSquare,
   opponentThreatSquare,
+  onInteractionAttempt,
   overlay,
 }: ChessBoardAreaProps) {
   const [moveFrom, setMoveFrom] = useState<string | null>(null);
@@ -197,6 +199,9 @@ export function ChessBoardArea({
         position={fen}
         onPieceDrop={handlePieceDrop}
         onSquareClick={handleSquareClick}
+        onPieceDragBegin={() => {
+          if (onInteractionAttempt && !onInteractionAttempt()) return false;
+        }}
         onSquareRightClick={() => { setMoveFrom(null); onPieceSelect?.(null); }}
         boardOrientation={orientation}
         customArrows={mappedArrows}
@@ -207,6 +212,7 @@ export function ChessBoardArea({
         customNotationStyle={customNotationStyle}
         showBoardNotation={true}
         arePiecesDraggable={isPlayerTurn}
+        areArrowsAllowed={false}
       />
       {overlay}
     </div>

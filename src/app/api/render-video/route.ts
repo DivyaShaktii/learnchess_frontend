@@ -29,7 +29,7 @@ export async function POST(request: Request) {
     // We quote the props string to handle spaces/quotes properly
     const command = `npx remotion render src/remotion/Root.tsx MyChessVideo "${outputPath}" --props='${props}'`;
 
-    return new Promise((resolve) => {
+    return new Promise<NextResponse>((resolve) => {
       exec(command, { cwd: process.cwd() }, (error, stdout, stderr) => {
         if (error) {
           console.error('Error rendering video:', error);
