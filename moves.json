@@ -1,25 +1,7 @@
 {
   "moveList": [
-    "Nf3",
-    "c5",
-    "e3",
-    "d5",
     "d4",
-    "e6",
-    "Be2",
-    "Nf6",
-    "Nbd2",
-    "b6",
-    "dxc5",
-    "Bxc5",
-    "O-O",
-    "Nbd7",
-    "c4",
-    "O-O",
-    "cxd5",
-    "Nxd5",
-    "Nb3",
-    "Be7"
+    "Nf6"
   ],
   "initialFen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 }

@@ -18,6 +18,7 @@
     "react": "^19.2.8",
     "react-chessboard": "^4.7.2",
     "react-dom": "^19.2.8",
+    "recharts": "^3.10.1",
     "remotion": "^4.0.505",
     "tailwind-merge": "^2.5.2"
   },

@@ -19,6 +19,8 @@ interface ChessBoardAreaProps {
   opponentThreatSquare?: string | null;
   onInteractionAttempt?: () => boolean;
   overlay?: React.ReactNode;
+  customLightSquareStyle?: CSSProperties;
+  customDarkSquareStyle?: CSSProperties;
 }
 
 export function ChessBoardArea({
@@ -35,6 +37,8 @@ export function ChessBoardArea({
   opponentThreatSquare,
   onInteractionAttempt,
   overlay,
+  customLightSquareStyle,
+  customDarkSquareStyle,
 }: ChessBoardAreaProps) {
   const [moveFrom, setMoveFrom] = useState<string | null>(null);
   // Square that briefly flashes red when an illegal move is attempted
@@ -182,9 +186,9 @@ export function ChessBoardArea({
   }, [moveFrom, fen, badMoveSquare, hintSquare, puzzleHintSquare, opponentThreatSquare, illegalFlashSquare]);
 
 
-  // Original dark/light gray squares
-  const darkSquareStyle = useMemo(() => ({ backgroundColor: '#4a4a4a' }), []);
-  const lightSquareStyle = useMemo(() => ({ backgroundColor: '#8a8a8a' }), []);
+  // Use custom styles if provided, otherwise default to dark/light gray
+  const darkSquareStyle = useMemo(() => customDarkSquareStyle || { backgroundColor: '#4a4a4a' }, [customDarkSquareStyle]);
+  const lightSquareStyle = useMemo(() => customLightSquareStyle || { backgroundColor: '#8a8a8a' }, [customLightSquareStyle]);
 
   const customNotationStyle = useMemo<Record<string, string | number>>(() => ({
     color: 'rgba(0,0,0,0.45)',

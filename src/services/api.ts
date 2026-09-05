@@ -102,18 +102,27 @@ class ApiError extends Error {
 async function fetchWithCheck(url: string, options?: RequestInit) {
   const res = await fetch(url, options);
   if (!res.ok) {
-    throw new ApiError(res.status, `HTTP Error ${res.status}`);
+    let msg = `HTTP Error ${res.status}`;
+    try {
+      const data = await res.json();
+      if (data.detail) msg = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail);
+    } catch (e) {}
+    throw new ApiError(res.status, msg);
   }
   return res.json();
 }
 
 export const api = {
-  async startNewGame(startingFen?: string, opponentRating?: number): Promise<StartGameResponse> {
+  async startNewGame(startingFen?: string, opponentRating?: number, userId?: string): Promise<StartGameResponse> {
     return fetchWithCheck(`${API_BASE}/api/game/new`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ starting_fen: startingFen, opponent_rating: opponentRating }),
+      body: JSON.stringify({ starting_fen: startingFen, opponent_rating: opponentRating, user_id: userId }),
     });
+  },
+
+  async resumeGame(userId: string): Promise<GameStateResponse> {
+    return fetchWithCheck(`${API_BASE}/api/game/resume?user_id=${userId}`);
   },
 
   async precheckMove(gameId: string, moveUci: string): Promise<PreMoveCheckResponse> {
@@ -188,4 +197,9 @@ export const api = {
       }),
     });
   },
+
+  async getUserGames(userId: string): Promise<{ games: Array<{ id: string; status: string; opponent_rating: number; created_at: string }> }> {
+    return fetchWithCheck(`${API_BASE}/api/user/games?user_id=${userId}`);
+  },
 };
+

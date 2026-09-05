@@ -2,13 +2,18 @@
 
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Chess } from 'chess.js';
-import { AlertCircle, X, RefreshCcw, LogIn } from 'lucide-react';
+import { AlertCircle, X, RefreshCcw, LogIn, Palette } from 'lucide-react';
 import { ChessBoardArea } from './ChessBoardArea';
 import { CoachOverlay } from './CoachOverlay';
 import { MoveLog } from './MoveLog';
 import AuthForm from './AuthForm';
 import { useSession } from '../utils/useSession';
 import { PaymentOverlay } from './PaymentOverlay';
+import { TrialTimer } from './TrialTimer';
+import { ProfileDropdown } from './ProfileDropdown';
+import { StatisticsModal } from './StatisticsModal';
+import { AvatarImg } from '../utils/avatarUtils';
+import { BoardThemeSelector, BOARD_THEMES } from './BoardThemeSelector';
 import { api } from '../services/api';
 import type { MoveAlternative, ThreatPreview } from '../services/api';
 import { getMoveSquares } from '../utils/chessTranslator';
@@ -53,7 +58,7 @@ const ratingTier = (r: number) =>
   r < 2600 ? 'Expert' : r < 2900 ? 'Master' : 'Near-Maximum (very hard)';
 
 function App() {
-  const { session, isPremium, loading: sessionLoading, fetchPremiumStatus, logout } = useSession();
+  const { session, isPremium, profile, loading: sessionLoading, fetchPremiumStatus, logout, mergeProfile } = useSession();
   const [gameMode, setGameMode] = useState<GameMode>('you_vs_robot');
   const [puzzleLevel, setPuzzleLevel] = useState(1);
   const [puzzleSessionId, setPuzzleSessionId] = useState<string | null>(null);
@@ -69,8 +74,24 @@ function App() {
   const [isThinking, setIsThinking] = useState(false);
   const [isRobotThinking, setIsRobotThinking] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  
+  // Board theme state, initialize from localStorage or default to 'obsidian' (matches original colors)
+  const [boardThemeId, setBoardThemeId] = useState<string>('obsidian');
 
   const [showPaywallModal, setShowPaywallModal] = useState(false);
+  
+  useEffect(() => {
+    if (isPremium && showPaywallModal) {
+      setShowPaywallModal(false);
+    }
+  }, [isPremium, showPaywallModal]);
+
+  const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [isStatsOpen, setIsStatsOpen] = useState(false);
+  const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
+  const [trialStarted, setTrialStarted] = useState(false);
+  const [trialExpired, setTrialExpired] = useState(false);
   const [overlayVisible, setOverlayVisible] = useState(false);
   const [warningActive, setWarningActive] = useState(false);
   const [pendingMoveUci, setPendingMoveUci] = useState<string | null>(null);
@@ -89,6 +110,7 @@ function App() {
 
   const previousFenRef = useRef(START_FEN);
   const lastSpokenMessageRef = useRef('');
+  const hasSpokenInitialGreeting = useRef(false);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -117,6 +139,19 @@ function App() {
     if (typeof window === 'undefined') return;
     window.localStorage.setItem('coach-voice-enabled', String(coachVoiceEnabled));
   }, [coachVoiceEnabled]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const savedTheme = window.localStorage.getItem('board-theme');
+    if (savedTheme && BOARD_THEMES.some(t => t.id === savedTheme)) {
+      setBoardThemeId(savedTheme);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem('board-theme', boardThemeId);
+  }, [boardThemeId]);
 
   // Automatically save move history to the backend for the terminal video generator
   useEffect(() => {
@@ -169,6 +204,26 @@ function App() {
     const tryStart = async (attemptsLeft: number) => {
       setIsConnecting(true);
       try {
+        if (session && session.user && gameMode === 'you_vs_robot') {
+          // Attempt to resume
+          try {
+            const res = await api.resumeGame(session.user.id);
+            if (!cancelled) {
+              setGameId(res.game_id);
+              setFen(res.fen);
+              setInitialFen(START_FEN); // Could be extracted if we saved it, but START_FEN is fine
+              setHistory(res.move_history);
+              resetWarningState();
+              previousFenRef.current = res.fen;
+              setToastMessage('Game Resumed');
+              setPuzzleSessionId(null);
+            }
+            return;
+          } catch (e) {
+             // Fall through to startNewGame if no active game found
+          }
+        }
+
         if (gameMode === 'puzzle_mode') {
           const res = await api.startPuzzle(puzzleLevel);
           if (!cancelled) {
@@ -184,7 +239,7 @@ function App() {
             setGameId(null);
           }
         } else {
-          const res = await api.startNewGame(undefined, opponentRating);
+          const res = await api.startNewGame(undefined, opponentRating, session?.user?.id);
           if (!cancelled) {
             setGameId(res.game_id);
             setFen(res.fen);
@@ -194,10 +249,13 @@ function App() {
             previousFenRef.current = res.fen;
             setToastMessage(null);
             setPuzzleSessionId(null);
-            speakRatingAnnouncement(opponentRating, ratingTier(opponentRating), coachVoiceEnabled);
+            if (!hasSpokenInitialGreeting.current) {
+              speakRatingAnnouncement(opponentRating, ratingTier(opponentRating), coachVoiceEnabled);
+              hasSpokenInitialGreeting.current = true;
+            }
           }
         }
-      } catch {
+      } catch (err) {
         if (!cancelled && attemptsLeft > 1) {
           // Backend might still be warming up — retry after 2 s
           setTimeout(() => { if (!cancelled) void tryStart(attemptsLeft - 1); }, 2000);
@@ -210,10 +268,12 @@ function App() {
         if (!cancelled) setIsConnecting(false);
       }
     };
-    void tryStart(3);
+    if (!sessionLoading) {
+      void tryStart(3);
+    }
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [sessionLoading, session]);
 
 
   // oxlint-disable-next-line react-hooks/exhaustive-deps
@@ -253,6 +313,7 @@ function App() {
       setIsThinking(false);
       setSquareSuggestions([]);
       lastSpokenMessageRef.current = '';
+      hasSpokenInitialGreeting.current = false;
       resetWarningState();
 
       const activeMode = overrideMode || gameMode;
@@ -269,7 +330,7 @@ function App() {
         setGameId(null);
         speakPuzzleStartAnnouncement(res.side_to_move, coachVoiceEnabled);
       } else {
-        const res = await api.startNewGame(undefined, opponentRating);
+        const res = await api.startNewGame(undefined, opponentRating, session?.user?.id);
         setGameId(res.game_id);
         setFen(res.fen);
         setHistory([]);
@@ -340,16 +401,16 @@ function App() {
   }, []);
 
   const handleInteractionAttempt = () => {
-    const { session: currentSession, isPremium: currentIsPremium } = stateRef.current;
-    
-    const userEmail = currentSession?.user?.email?.toLowerCase().trim();
-    const isDevBypass = userEmail === 'janhavikolekar280@gmail.com';
-
-    // Immediate paywall: 0 free moves!
-    if (!currentSession || (!currentIsPremium && !isDevBypass)) {
-      setShowPaywallModal(true);
-      return false;
+    if (!session) {
+      if (trialExpired) {
+        setShowPaywallModal(true);
+        return false;
+      }
+      if (!trialStarted) {
+        setTrialStarted(true);
+      }
     }
+    
     return true;
   };
 
@@ -940,16 +1001,51 @@ function App() {
           )}
 
           {session ? (
-            <button
-              onClick={async () => {
-                await logout();
-                window.location.reload(); // Refresh to clear state
-              }}
-              className="flex items-center gap-1.5 rounded-full border border-red-600 bg-red-600/20 px-4 py-1.5 text-xs font-semibold text-red-400 whitespace-nowrap shrink-0 transition-all hover:bg-red-600 hover:text-white"
-            >
-              <LogIn size={14} className="rotate-180" />
-              Logout
-            </button>
+            <div className="relative flex items-center gap-2">
+              <button
+                onClick={() => setIsProfileOpen(!isProfileOpen)}
+                className="flex items-center justify-center w-8 h-8 rounded-full border-2 border-emerald-500 overflow-hidden shadow-md hover:scale-105 transition-transform shrink-0"
+              >
+                <AvatarImg 
+                  avatarUrl={profile?.avatar_url || session?.user?.user_metadata?.avatar_url}
+                  fallbackName={profile?.display_name || profile?.name || session?.user?.user_metadata?.display_name || session?.user?.email}
+                  className="w-full h-full"
+                  size={32}
+                />
+              </button>
+              <ProfileDropdown 
+                isOpen={isProfileOpen} 
+                onClose={() => setIsProfileOpen(false)} 
+                profile={profile} 
+                session={session} 
+                onOpenStats={() => setIsStatsOpen(true)}
+                onSaved={(patch) => {
+                  // Immediately update local profile state so name/avatar reflect without re-fetch
+                  mergeProfile(patch);
+                }}
+                onLogout={async () => {
+                  await logout();
+                  window.location.reload();
+                }}
+                onGameSelect={async (id) => {
+                  try {
+                    const state = await api.getGameState(id);
+                    setGameId(id);
+                    setFen(state.fen);
+                    setHistory(state.move_history);
+                    setGameMode('you_vs_robot');
+                    if (state.is_game_over) {
+                      setCoachMessage(`Game over! ${state.result || ''}`);
+                    } else {
+                      setCoachMessage('Game resumed.');
+                    }
+                  } catch (err) {
+                    console.error('Failed to resume game:', err);
+                    setToastMessage('Failed to resume game.');
+                  }
+                }}
+              />
+            </div>
           ) : (
             <button
               onClick={() => setShowPaywallModal(true)}
@@ -1041,7 +1137,16 @@ function App() {
                     onShowFollowUp={handleShowFollowUp}
                   />
                 }
+                customLightSquareStyle={{ backgroundColor: BOARD_THEMES.find(t => t.id === boardThemeId)?.light }}
+                customDarkSquareStyle={{ backgroundColor: BOARD_THEMES.find(t => t.id === boardThemeId)?.dark }}
               />
+              <button
+                onClick={() => setIsThemeModalOpen(true)}
+                className="absolute -left-12 bottom-0 p-2 rounded-full bg-zinc-800/80 border border-zinc-700 hover:bg-zinc-700 text-zinc-300 hover:text-emerald-400 shadow-lg transition-all z-40 items-center justify-center hidden lg:flex"
+                title="Change Board Theme"
+              >
+                <Palette size={20} />
+              </button>
             </div>
           </div>
 
@@ -1049,6 +1154,15 @@ function App() {
             className="flex flex-shrink-0 flex-col overflow-hidden rounded-lg border border-zinc-800/60 shadow-2xl relative w-full lg:w-[400px] lg:h-[min(calc(100vh-60px),calc(100vw-420px))]"
             style={{ minHeight: '300px', background: '#0f0f12' }}
           >
+            <TrialTimer 
+              isActive={!session && trialStarted} 
+              onExpire={() => {
+                setTrialExpired(true);
+                setShowPaywallModal(true);
+              }} 
+            />
+
+
             {gameMode === 'puzzle_mode' ? (
               <div className="flex flex-col h-full w-full p-6 text-center justify-center">
                 <h2 className="text-2xl font-bold text-emerald-400 mb-2">Puzzle Mode</h2>
@@ -1094,7 +1208,7 @@ function App() {
 
       {/* Auth / Paywall Modal */}
       {showPaywallModal && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/90 p-4 backdrop-blur-xl">
           {!session ? (
             <div className="w-full max-w-md">
               <AuthForm onClose={() => setShowPaywallModal(false)} />
@@ -1123,6 +1237,19 @@ function App() {
         </div>
       )}
 
+      {/* Statistics Modal */}
+      <StatisticsModal 
+        isOpen={isStatsOpen}
+        onClose={() => setIsStatsOpen(false)}
+        userId={session?.user?.id}
+        currentRating={profile?.predicted_rating || 1500}
+      />
+      <BoardThemeSelector
+        isOpen={isThemeModalOpen}
+        onClose={() => setIsThemeModalOpen(false)}
+        selectedThemeId={boardThemeId}
+        onSelectTheme={setBoardThemeId}
+      />
     </div>
   );
 }
