@@ -36,12 +36,15 @@ interface ProfileEditModalProps {
   onClose: () => void;
   session: any;
   profile: any;
-  onSaved: (patch: { display_name?: string; avatar_url?: string }) => void;
+  onSaved: (patch: { display_name?: string; avatar_url?: string; birth_year?: number | null }) => void;
 }
 
 export function ProfileEditModal({ isOpen, onClose, session, profile, onSaved }: ProfileEditModalProps) {
   const [displayName, setDisplayName] = useState<string>(
     profile?.display_name || profile?.name || session?.user?.user_metadata?.full_name || ""
+  );
+  const [birthYear, setBirthYear] = useState<string>(
+    profile?.birth_year ? String(profile.birth_year) : ""
   );
   const [selectedPreset, setSelectedPreset] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -58,6 +61,11 @@ export function ProfileEditModal({ isOpen, onClose, session, profile, onSaved }:
         profile?.name ||
         session?.user?.user_metadata?.full_name ||
         ""
+      );
+      setBirthYear(
+        profile?.birth_year || session?.user?.user_metadata?.birth_year
+          ? String(profile?.birth_year || session?.user?.user_metadata?.birth_year)
+          : ""
       );
       setPreviewUrl(
         profile?.avatar_url ||
@@ -110,6 +118,19 @@ export function ProfileEditModal({ isOpen, onClose, session, profile, onSaved }:
       if (trimmed) updates.display_name = trimmed;
       if (previewUrl) updates.avatar_url = previewUrl;
 
+      let parsedBirthYear: number | null = null;
+      if (birthYear.trim()) {
+        const yr = parseInt(birthYear.trim(), 10);
+        const currentYr = new Date().getFullYear();
+        if (isNaN(yr) || yr < 1920 || yr > currentYr) {
+          setError(`Please enter a valid birth year between 1920 and ${currentYr}.`);
+          setSaving(false);
+          return;
+        }
+        parsedBirthYear = yr;
+        updates.birth_year = yr;
+      }
+
       if (Object.keys(updates).length === 0) {
         onClose();
         return;
@@ -153,6 +174,7 @@ export function ProfileEditModal({ isOpen, onClose, session, profile, onSaved }:
       onSaved({
         display_name: trimmed || undefined,
         avatar_url: previewUrl || undefined,
+        birth_year: parsedBirthYear,
       });
       onClose();
     } catch (err: any) {
@@ -225,6 +247,21 @@ export function ProfileEditModal({ isOpen, onClose, session, profile, onSaved }:
               placeholder="Enter your player name" maxLength={32}
               className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-emerald-500 transition-colors" />
             <p className="text-xs text-zinc-600 mt-1">{displayName.length}/32 characters</p>
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-xs text-zinc-500 font-medium uppercase tracking-wide">Birth Year (YYYY)</label>
+            </div>
+            <input 
+              type="number" 
+              value={birthYear} 
+              onChange={(e) => setBirthYear(e.target.value)}
+              placeholder="e.g. 2000" 
+              min={1920} 
+              max={new Date().getFullYear()}
+              className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-emerald-500 transition-colors" 
+            />
           </div>
 
           {error && <p className="text-xs text-red-400 bg-red-900/20 border border-red-800/40 rounded-lg px-3 py-2">{error}</p>}

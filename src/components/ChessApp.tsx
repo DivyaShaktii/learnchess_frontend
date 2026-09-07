@@ -2,12 +2,12 @@
 
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Chess } from 'chess.js';
-import { AlertCircle, X, RefreshCcw, LogIn, Palette } from 'lucide-react';
+import { AlertCircle, X, RefreshCcw, LogIn, Palette, Flame } from 'lucide-react';
 import { ChessBoardArea } from './ChessBoardArea';
 import { CoachOverlay } from './CoachOverlay';
 import { MoveLog } from './MoveLog';
 import AuthForm from './AuthForm';
-import { useSession } from '../utils/useSession';
+import { useSession, isAdultFromBirthYear } from '../utils/useSession';
 import { PaymentOverlay } from './PaymentOverlay';
 import { TrialTimer } from './TrialTimer';
 import { ProfileDropdown } from './ProfileDropdown';
@@ -18,7 +18,18 @@ import { api } from '../services/api';
 import type { MoveAlternative, ThreatPreview } from '../services/api';
 import { getMoveSquares } from '../utils/chessTranslator';
 import { chessSounds } from '../utils/soundEffects';
-import { speakMoveCategory, speakRatingAnnouncement, speakPuzzleStartAnnouncement, speakRefutationWarning, speakGameWon, speakDynamicRefutation } from '../utils/coachVoice';
+import { 
+  speakMoveCategory, 
+  speakRatingAnnouncement, 
+  speakPuzzleStartAnnouncement, 
+  speakRefutationWarning, 
+  speakGameWon, 
+  speakDynamicRefutation,
+  speakRoastMoveCategory,
+  speakRoastPreMoveWarning,
+  speakRoastUndo,
+  speakRoastGameOver
+} from '../utils/coachVoice';
 
 export interface ToastProps {
   message: string;
@@ -87,6 +98,7 @@ function App() {
   }, [isPremium, showPaywallModal]);
 
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
+  const [newRegisteredUserId, setNewRegisteredUserId] = useState<string | null>(null);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isStatsOpen, setIsStatsOpen] = useState(false);
   const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
@@ -107,6 +119,61 @@ function App() {
   const [squareSuggestions, setSquareSuggestions] = useState<MoveAlternative[]>([]);
   const [followUpArrows, setFollowUpArrows] = useState<[string, string, string][]>([]);
   const [opponentThreatSquare, setOpponentThreatSquare] = useState<string | null>(null);
+
+  // Roast Mode (18+) State
+  const [isRoastMode, setIsRoastMode] = useState<boolean>(false);
+  const [currentRoastWarning, setCurrentRoastWarning] = useState<string>('');
+
+  // Persistent LocalStorage and Profile sync for Roast Mode
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const savedRoast = window.localStorage.getItem('smartchess_roast_mode');
+    if (savedRoast === 'true') {
+      const verifiedBirthYear = window.localStorage.getItem('smartchess_verified_birth_year');
+      const userBirthYear = profile?.birth_year || (verifiedBirthYear ? parseInt(verifiedBirthYear, 10) : null);
+      if (userBirthYear && isAdultFromBirthYear(userBirthYear)) {
+        setIsRoastMode(true);
+      } else {
+        setIsRoastMode(false);
+        window.localStorage.removeItem('smartchess_roast_mode');
+      }
+    }
+  }, [profile?.birth_year]);
+
+  const handleToggleRoastMode = () => {
+    if (isRoastMode) {
+      setIsRoastMode(false);
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem('smartchess_roast_mode', 'false');
+      }
+      setToastMessage('Roast Mode turned OFF. Polite Coach active.');
+      return;
+    }
+
+    const verifiedBirthYear = typeof window !== 'undefined' ? window.localStorage.getItem('smartchess_verified_birth_year') : null;
+    const birthYear = profile?.birth_year || (verifiedBirthYear ? parseInt(verifiedBirthYear, 10) : null);
+
+    if (birthYear) {
+      if (isAdultFromBirthYear(birthYear)) {
+        setIsRoastMode(true);
+        if (typeof window !== 'undefined') {
+          window.localStorage.setItem('smartchess_roast_mode', 'true');
+        }
+        setToastMessage('🔥 Roast Mode (18+) ACTIVATED! Get ready to be humiliated.');
+      } else {
+        const currentYear = new Date().getFullYear();
+        setToastMessage(`🔞 Roast Mode is strictly 18+. You are ${currentYear - birthYear} years old.`);
+      }
+    } else {
+      if (!session) {
+        setToastMessage('Please sign in or create an account with your birth year to unlock Roast Mode (18+).');
+        setShowPaywallModal(true);
+      } else {
+        setToastMessage('Please set your Birth Year in your Profile dropdown to unlock Roast Mode (18+).');
+        setIsProfileOpen(true);
+      }
+    }
+  };
 
   const previousFenRef = useRef(START_FEN);
   const lastSpokenMessageRef = useRef('');
@@ -358,6 +425,7 @@ function App() {
     setClassification(undefined);
     setThreat(null);
     setAlternatives([]);
+    setCurrentRoastWarning('');
     lastSpokenMessageRef.current = '';
   };
 
@@ -377,6 +445,9 @@ function App() {
       setHistory(res.move_history);
       resetWarningState();
       setCoachMessage('Move undone. Choose your next move!');
+      if (isRoastMode) {
+        speakRoastUndo(coachVoiceEnabled);
+      }
     } catch {
       if (previousFenRef.current) {
         setFen(previousFenRef.current);
@@ -522,10 +593,15 @@ function App() {
         setAlternatives(preRes.top_alternatives ?? []);
         setRefutationSequence(preRes.refutation_sequence ?? []);
 
-        const isBoxTier = Boolean(preRes.is_box_tier);
+        const isBoxTier = learnerMode && Boolean(preRes.is_box_tier);
 
         if (isBoxTier) {
-          speakMoveCategory(preRes.label, coachVoiceEnabled, preRes.explanation);
+          if (isRoastMode) {
+            const roastText = speakRoastPreMoveWarning(coachVoiceEnabled);
+            setCurrentRoastWarning(roastText);
+          } else {
+            speakMoveCategory(preRes.label, coachVoiceEnabled, preRes.explanation);
+          }
           setBadMoveSquare(move.to);
           setWarningActive(true);
           
@@ -614,7 +690,11 @@ function App() {
       const cleanLabel = labelMap[label] || label;
       setClassification(cleanLabel);
       if (!skipVoice) {
-        speakMoveCategory(cleanLabel, coachVoiceEnabled);
+        if (isRoastMode) {
+          speakRoastMoveCategory(cleanLabel, undefined, history.length <= 6, coachVoiceEnabled);
+        } else {
+          speakMoveCategory(cleanLabel, coachVoiceEnabled);
+        }
       }
 
       setOverlayVisible(false);
@@ -629,10 +709,21 @@ function App() {
           const winner = chess.turn() === 'w' ? 'Black' : 'White';
           msg = `🏆 Checkmate! ${winner} wins the game!`;
           if (winner.toLowerCase() === playerColor) {
-            speakGameWon(coachVoiceEnabled);
+            if (isRoastMode) {
+              speakRoastGameOver('player_wins', coachVoiceEnabled);
+            } else {
+              speakGameWon(coachVoiceEnabled);
+            }
+          } else {
+            if (isRoastMode) {
+              speakRoastGameOver('robot_wins', coachVoiceEnabled);
+            }
           }
         } else if (chess.isDraw()) {
           msg = '🤝 Game Over! The game ended in a draw.';
+          if (isRoastMode) {
+            speakRoastGameOver('stalemate', coachVoiceEnabled);
+          }
         }
         setCoachMessage(msg);
         setOverlayVisible(true);
@@ -662,10 +753,21 @@ function App() {
           const winner = chess.turn() === 'w' ? 'Black' : 'White';
           msg = `🏆 Checkmate! ${winner} wins the game!`;
           if (winner.toLowerCase() === playerColor) {
-            speakGameWon(coachVoiceEnabled);
+            if (isRoastMode) {
+              speakRoastGameOver('player_wins', coachVoiceEnabled);
+            } else {
+              speakGameWon(coachVoiceEnabled);
+            }
+          } else {
+            if (isRoastMode) {
+              speakRoastGameOver('robot_wins', coachVoiceEnabled);
+            }
           }
         } else if (chess.isDraw()) {
           msg = '🤝 Game Over! The game ended in a draw.';
+          if (isRoastMode) {
+            speakRoastGameOver('stalemate', coachVoiceEnabled);
+          }
         }
         setCoachMessage(msg);
         setOverlayVisible(true);
@@ -673,7 +775,7 @@ function App() {
     } catch (err) {
       handleError(err);
     }
-  }, [gameId, fen, refreshGameState]);
+  }, [gameId, fen, refreshGameState, isRoastMode, playerColor, coachVoiceEnabled]);
 
   const playRobotMove = useCallback(async () => {
     if (!gameId) return;
@@ -700,6 +802,9 @@ function App() {
     setFen(previousFenRef.current);
     resetWarningState();
     setCoachMessage('Good call. Find a better move!');
+    if (isRoastMode) {
+      speakRoastUndo(coachVoiceEnabled);
+    }
   };
 
 
@@ -830,6 +935,10 @@ function App() {
       }
 
       alternatives.forEach((alt) => {
+        // Never show a green arrow for the player's attempted bad move
+        if (pendingMoveUci && alt.move === pendingMoveUci) return;
+        // Strictly only show green arrows for verified safe moves (cp_loss <= 40)
+        if (alt.cp_loss !== undefined && alt.cp_loss !== null && alt.cp_loss > 40) return;
         const sq = getMoveSquares(fen, alt.san);
         if (sq) arrows.push([sq.from, sq.to, 'rgba(34, 197, 94, 0.85)']);
       });
@@ -840,9 +949,11 @@ function App() {
     const arrows: [string, string, string][] = [];
     if (squareSuggestions.length > 0) {
       squareSuggestions.forEach((alt, idx) => {
+        // Strictly only show green arrows for verified safe moves (cp_loss <= 40)
+        if (alt.cp_loss !== undefined && alt.cp_loss !== null && alt.cp_loss > 40) return;
         const sq = getMoveSquares(fen, alt.san);
         if (sq) {
-          const alpha = [0.9, 0.65, 0.4][idx] ?? 0.3;
+          const alpha = [0.95, 0.75, 0.55][idx] ?? 0.4;
           arrows.push([sq.from, sq.to, `rgba(34, 197, 94, ${alpha})`]);
         }
       });
@@ -990,6 +1101,19 @@ function App() {
             Learner Mode: {learnerMode ? 'ON' : 'OFF'}
           </button>
 
+          <button
+            onClick={handleToggleRoastMode}
+            className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold whitespace-nowrap shrink-0 transition-all ${
+              isRoastMode
+                ? 'border-red-600/80 bg-red-950/70 text-red-200 shadow-md shadow-red-950/40 hover:bg-red-900/80'
+                : 'border-zinc-700 bg-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700'
+            }`}
+            title="Uncensored 18+ savage commentary (Birth Year verified)"
+          >
+            <Flame size={13} className={isRoastMode ? 'text-red-400 animate-pulse' : 'text-zinc-500'} />
+            Roast Mode (18+): {isRoastMode ? 'ON' : 'OFF'}
+          </button>
+
           {gameMode === 'you_vs_robot' && (
             <button
               onClick={() => void handleUndoBadMove()}
@@ -1135,6 +1259,8 @@ function App() {
                     onCloseOverlay={() => setOverlayVisible(false)}
                     onAskHint={handleAskHint}
                     onShowFollowUp={handleShowFollowUp}
+                    isRoastMode={isRoastMode}
+                    roastMessage={currentRoastWarning}
                   />
                 }
                 customLightSquareStyle={{ backgroundColor: BOARD_THEMES.find(t => t.id === boardThemeId)?.light }}
@@ -1209,15 +1335,22 @@ function App() {
       {/* Auth / Paywall Modal */}
       {showPaywallModal && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/90 p-4 backdrop-blur-xl">
-          {!session ? (
+          {(!session && !newRegisteredUserId) ? (
             <div className="w-full max-w-md">
-              <AuthForm onClose={() => setShowPaywallModal(false)} />
+              <AuthForm 
+                onClose={() => {
+                  setNewRegisteredUserId(null);
+                  setShowPaywallModal(false);
+                }} 
+                onAuthenticated={(uid) => setNewRegisteredUserId(uid)}
+              />
             </div>
           ) : (
             <div className="w-full max-w-md relative">
               <button 
                 onClick={() => {
                   logout();
+                  setNewRegisteredUserId(null);
                   setShowPaywallModal(false);
                 }}
                 className="absolute right-4 top-4 z-10 text-zinc-500 hover:text-white transition-colors"
@@ -1225,12 +1358,16 @@ function App() {
                 <X className="h-5 w-5" />
               </button>
               <PaymentOverlay 
-                userId={session.user.id} 
+                userId={session?.user?.id || newRegisteredUserId!} 
                 onSuccess={() => {
-                  fetchPremiumStatus(session.user.id);
+                  if (session?.user?.id) fetchPremiumStatus(session.user.id);
+                  setNewRegisteredUserId(null);
                   setShowPaywallModal(false);
                 }} 
-                onLogout={logout} 
+                onLogout={() => {
+                  logout();
+                  setNewRegisteredUserId(null);
+                }} 
               />
             </div>
           )}

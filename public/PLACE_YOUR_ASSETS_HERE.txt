@@ -1,6 +1,0 @@
-Add these to /public for full SEO/social-preview support:
-  - favicon.ico
-  - og-image.png   (1200x630, used for Open Graph / Twitter card previews)
-  - hero.png       (if you still use it anywhere)
-
-You can delete this file once they're in place.

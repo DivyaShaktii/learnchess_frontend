@@ -1,17 +1,19 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Mail, Lock, LogIn, UserPlus, X, Loader2 } from 'lucide-react';
+import { Mail, Lock, LogIn, UserPlus, X, Loader2, Calendar } from 'lucide-react';
 import { supabase } from '../utils/supabaseClient';
 
 interface AuthFormProps {
   onClose?: () => void;
+  onAuthenticated?: (userId: string) => void;
 }
 
-export default function AuthForm({ onClose }: AuthFormProps) {
+export default function AuthForm({ onClose, onAuthenticated }: AuthFormProps) {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [birthYear, setBirthYear] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
@@ -24,13 +26,64 @@ export default function AuthForm({ onClose }: AuthFormProps) {
 
     try {
       if (isLogin) {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
-        setSuccessMsg('Successfully logged in!');
+        setSuccessMsg('Successfully logged in! Opening payment...');
+        if (data?.user && onAuthenticated) {
+          setTimeout(() => onAuthenticated(data.user.id), 400);
+        }
       } else {
-        const { error } = await supabase.auth.signUp({ email, password });
+        const currentYear = new Date().getFullYear();
+        const yr = parseInt(birthYear.trim(), 10);
+        if (isNaN(yr) || yr < 1920 || yr > currentYear) {
+          setErrorMsg(`Please enter a valid 4-digit birth year between 1920 and ${currentYear}.`);
+          setLoading(false);
+          return;
+        }
+
+        const { data, error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            data: {
+              birth_year: yr,
+            },
+          },
+        });
         if (error) throw error;
-        setSuccessMsg('Account created successfully!');
+
+        // Store locally & in profiles table
+        if (typeof window !== 'undefined') {
+          window.localStorage.setItem('smartchess_verified_birth_year', String(yr));
+        }
+        let currentUserId = data?.user?.id;
+        if (currentUserId) {
+          try {
+            await supabase.from('profiles').upsert({
+              id: currentUserId,
+              birth_year: yr,
+            });
+          } catch (e) {
+            console.warn('Profile birth_year upsert notice:', e);
+          }
+        }
+
+        // If session was not auto-issued by Supabase signUp, attempt instant signIn
+        if (!data?.session) {
+          try {
+            const signInRes = await supabase.auth.signInWithPassword({ email, password });
+            if (signInRes.data?.user) {
+              currentUserId = signInRes.data.user.id;
+            }
+          } catch (signInErr) {
+            console.log('Instant sign in after signup notice:', signInErr);
+          }
+        }
+
+        setSuccessMsg('Account created successfully! Opening payment gateway...');
+        if (currentUserId && onAuthenticated) {
+          setTimeout(() => onAuthenticated(currentUserId!), 400);
+        }
       }
     } catch (err: any) {
       setErrorMsg(err.message || 'An error occurred during authentication.');
@@ -137,6 +190,25 @@ export default function AuthForm({ onClose }: AuthFormProps) {
               />
             </div>
           </div>
+
+          {!isLogin && (
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-zinc-400">Birth Year (YYYY)</label>
+              <div className="relative">
+                <Calendar className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+                <input
+                  type="number"
+                  min={1920}
+                  max={new Date().getFullYear()}
+                  required
+                  value={birthYear}
+                  onChange={(e) => setBirthYear(e.target.value)}
+                  placeholder="e.g. 2000"
+                  className="w-full rounded-xl border border-zinc-800 bg-zinc-900/50 py-2.5 pl-10 pr-4 text-sm text-white placeholder-zinc-600 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                />
+              </div>
+            </div>
+          )}
 
           <button 
             disabled={loading}

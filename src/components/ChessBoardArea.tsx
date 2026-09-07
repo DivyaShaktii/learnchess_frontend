@@ -211,8 +211,8 @@ export function ChessBoardArea({
         customArrows={mappedArrows}
         customSquareStyles={customSquareStyles}
         animationDuration={150}
-        customDarkSquareStyle={darkSquareStyle}
-        customLightSquareStyle={lightSquareStyle}
+        customDarkSquareStyle={darkSquareStyle as Record<string, string>}
+        customLightSquareStyle={lightSquareStyle as Record<string, string>}
         customNotationStyle={customNotationStyle}
         showBoardNotation={true}
         arePiecesDraggable={isPlayerTurn}

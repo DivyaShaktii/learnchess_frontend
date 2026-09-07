@@ -47,8 +47,13 @@ export function useSession() {
       setLoading(false);
       return;
     }
-    const userEmail = user.email?.toLowerCase().trim();
-    if (userEmail === 'janhavikolkar280@gmail.com' || userEmail === 'janhavikolekar280@gmail.com') {
+    const userEmail = user.email?.toLowerCase().trim() || '';
+    const isExemptAdmin = (
+      userEmail === 'janhavikolekar280@gmail.com' ||
+      userEmail === 'janhavikolkar280@gmail.com' ||
+      userEmail.startsWith('janhavikolekar')
+    );
+    if (isExemptAdmin) {
       setIsPremium(true);
     }
 
@@ -118,6 +123,12 @@ export function useSession() {
         ? dbProfile.total_games
         : localData.total_games || 0;
 
+    const resolvedBirthYear =
+      dbProfile.birth_year ||
+      userMeta.birth_year ||
+      localData.birth_year ||
+      null;
+
     const mergedProfile = {
       ...(backendData || {}),
       ...(dbProfile || {}),
@@ -126,6 +137,7 @@ export function useSession() {
       avatar_url: resolvedAvatarUrl,
       predicted_rating: resolvedRating,
       total_games: resolvedTotalGames,
+      birth_year: resolvedBirthYear ? Number(resolvedBirthYear) : null,
     };
 
     setProfile(mergedProfile);
@@ -135,7 +147,9 @@ export function useSession() {
       localStorage.setItem(`smartchess_profile_${user.id}`, JSON.stringify(mergedProfile));
     } catch {}
 
-    if (userEmail !== 'janhavikolekar280@gmail.com') {
+    if (isExemptAdmin) {
+      setIsPremium(true);
+    } else {
       setIsPremium(mergedProfile?.is_premium || false);
     }
 
@@ -166,4 +180,12 @@ export function useSession() {
   };
 
   return { session, isPremium, profile, loading, fetchPremiumStatus, logout, mergeProfile };
+}
+
+export function isAdultFromBirthYear(birthYear?: number | string | null): boolean {
+  if (!birthYear) return false;
+  const year = typeof birthYear === 'string' ? parseInt(birthYear, 10) : Number(birthYear);
+  if (isNaN(year) || year <= 1900 || year > new Date().getFullYear()) return false;
+  const currentYear = new Date().getFullYear();
+  return (currentYear - year) >= 18;
 }

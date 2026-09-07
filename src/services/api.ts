@@ -16,6 +16,8 @@ export interface MoveAlternative {
   is_mate: boolean;
   mate_in: number | null;
   pv: string[];
+  cp_loss?: number | null;
+  is_safe?: boolean;
 }
 
 export interface PreMoveCheckResponse {

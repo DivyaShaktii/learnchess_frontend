@@ -1,6 +1,7 @@
 // Audio playback layer for move classification feedback
 import { dispatchSubtitle, clearSubtitleAfter, speakCoachMessage } from './soundEffects';
 import { Chess } from 'chess.js';
+import { getRandomRoast, getRoastCategoryForMove, RoastCategoryKey } from '../data/roastDialogues';
 
 const BASE_PATH = "/Chess_Project_Voices";
 
@@ -129,4 +130,56 @@ export function speakDynamicRefutation(refutationSequence: string[], currentFen:
     console.warn("Failed to generate dynamic refutation voice", err);
     speakRefutationWarning(playAudio);
   }
+}
+
+// -------------------------------------------------------------
+// 🔥 Roast Mode (18+) Voice Functions
+// -------------------------------------------------------------
+
+export function speakRoastMoveCategory(
+  label: string,
+  cpLoss?: number,
+  isOpening?: boolean,
+  playAudio: boolean = true
+): string {
+  if (typeof window === 'undefined') return '';
+  const category = getRoastCategoryForMove(label, cpLoss, isOpening);
+  const line = getRandomRoast(category);
+  speakCoachMessage(line, undefined, playAudio);
+  return line;
+}
+
+export function speakRoastPreMoveWarning(playAudio: boolean = true): string {
+  if (typeof window === 'undefined') return '';
+  const line = getRandomRoast('PRE_MOVE_WARNINGS');
+  speakCoachMessage(line, undefined, playAudio);
+  return line;
+}
+
+export function speakRoastUndo(playAudio: boolean = true): string {
+  if (typeof window === 'undefined') return '';
+  const line = getRandomRoast('UNDO_MOVE');
+  speakCoachMessage(line, undefined, playAudio);
+  return line;
+}
+
+export function speakRoastSlowPlay(playAudio: boolean = true): string {
+  if (typeof window === 'undefined') return '';
+  const line = getRandomRoast('SLOW_PLAY');
+  speakCoachMessage(line, undefined, playAudio);
+  return line;
+}
+
+export function speakRoastGameOver(
+  outcome: 'robot_wins' | 'player_wins' | 'stalemate',
+  playAudio: boolean = true
+): string {
+  if (typeof window === 'undefined') return '';
+  let category: RoastCategoryKey = 'CHECKMATE_ROBOT_WINS';
+  if (outcome === 'player_wins') category = 'CHECKMATE_PLAYER_WINS';
+  if (outcome === 'stalemate') category = 'STALEMATE';
+
+  const line = getRandomRoast(category);
+  speakCoachMessage(line, undefined, playAudio);
+  return line;
 }

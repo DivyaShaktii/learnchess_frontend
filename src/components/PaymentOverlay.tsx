@@ -103,21 +103,9 @@ export function PaymentOverlay({ userId, onSuccess, onLogout }: PaymentOverlayPr
         <button
           onClick={onLogout}
           disabled={loading}
-          className="text-sm font-medium text-zinc-500 hover:text-white transition-colors block mx-auto mb-4"
+          className="text-sm font-medium text-zinc-500 hover:text-white transition-colors block mx-auto"
         >
           Log out and use a different account
-        </button>
-
-        <button
-          onClick={async () => {
-            setLoading(true);
-            await supabase.from('profiles').update({ is_premium: true }).eq('id', userId);
-            onSuccess();
-          }}
-          disabled={loading}
-          className="text-xs font-medium text-zinc-600 hover:text-emerald-400 transition-colors block mx-auto underline"
-        >
-          (Test Mode) Skip Payment & Enter Game
         </button>
       </div>
     </div>

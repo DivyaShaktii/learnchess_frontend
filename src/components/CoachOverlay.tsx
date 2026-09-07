@@ -19,6 +19,8 @@ interface CoachOverlayProps {
   onCloseOverlay?: () => void;
   onAskHint: () => void;
   onShowFollowUp: () => void;
+  isRoastMode?: boolean;
+  roastMessage?: string;
 }
 
 export function CoachOverlay({
@@ -36,6 +38,8 @@ export function CoachOverlay({
   onCloseOverlay,
   onAskHint,
   onShowFollowUp,
+  isRoastMode = false,
+  roastMessage = '',
 }: CoachOverlayProps) {
   const isBadMove = ['Blunder', 'Mistake', 'Inaccuracy', 'Opening Pawn Warning'].includes(classification || '');
   const showFollowUpButton = isBadMove;
@@ -108,10 +112,10 @@ export function CoachOverlay({
           transform: `translate(${position.x}px, ${position.y}px)`,
           cursor: isDragging ? 'grabbing' : 'grab',
           touchAction: 'none',
-          background: 'rgba(28, 28, 30, 0.75)',
+          background: isRoastMode ? 'rgba(35, 10, 10, 0.88)' : 'rgba(28, 28, 30, 0.75)',
           backdropFilter: 'blur(12px)',
-          border: '1.5px solid rgba(245, 158, 11, 0.5)',
-          boxShadow: '0 8px 32px rgba(0,0,0,0.8), 0 0 15px rgba(245, 158, 11, 0.2)',
+          border: isRoastMode ? '1.5px solid rgba(239, 68, 68, 0.7)' : '1.5px solid rgba(245, 158, 11, 0.5)',
+          boxShadow: isRoastMode ? '0 8px 32px rgba(0,0,0,0.9), 0 0 24px rgba(239, 68, 68, 0.35)' : '0 8px 32px rgba(0,0,0,0.8), 0 0 15px rgba(245, 158, 11, 0.2)',
           animation: 'slideDown 0.25s ease',
         }}
       >
@@ -122,21 +126,38 @@ export function CoachOverlay({
           }
         `}</style>
 
+        {isRoastMode && roastMessage && (
+          <div className="px-6 pt-4 pb-1 text-center">
+            <div className="inline-flex items-center gap-2 mb-1">
+              <span className="text-[10px] font-black uppercase tracking-widest text-red-300 bg-red-950 border border-red-800 px-2 py-0.5 rounded shadow-sm">
+                Roast Mode Active
+              </span>
+            </div>
+            <p className="text-sm font-semibold text-red-200 italic max-w-md">
+              "{roastMessage}"
+            </p>
+          </div>
+        )}
+
         <div className="flex flex-wrap items-center justify-center gap-3 px-6 py-4">
+          <button
+            onClick={handlePlayAnyway}
+            className={`flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-bold transition-all ${
+              isRoastMode
+                ? 'border-red-800/80 bg-red-950/80 text-red-200 hover:bg-red-900/90 shadow-md hover:scale-105'
+                : 'border-zinc-700/80 bg-zinc-800/80 text-zinc-200 hover:bg-zinc-700/80'
+            }`}
+          >
+            <Play size={15} className={isRoastMode ? 'text-red-400' : 'text-zinc-400'} />
+            {isRoastMode ? "I'm A Dumbass, Play Anyway" : 'Play Anyway'}
+          </button>
+
           <button
             onClick={onAskHint}
             className="flex items-center gap-2 rounded-lg border border-zinc-700/80 bg-zinc-800/80 px-4 py-2 text-sm font-bold text-zinc-200 transition-all hover:bg-zinc-700/80"
           >
             <Lightbulb size={15} className="text-amber-400" />
             Hint Box
-          </button>
-
-          <button
-            onClick={handlePlayAnyway}
-            className="flex items-center gap-2 rounded-lg border border-zinc-700/80 bg-zinc-800/80 px-4 py-2 text-sm font-bold text-zinc-200 transition-all hover:bg-zinc-700/80"
-          >
-            <Play size={15} className="text-zinc-400" />
-            Play Anyway
           </button>
 
           {showFollowUpButton && (
