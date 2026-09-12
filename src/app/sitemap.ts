@@ -1,7 +1,7 @@
 import type { MetadataRoute } from 'next';
 
 // TODO: replace with your real production domain.
-const SITE_URL = 'learnchess.live';
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
 
 export default function sitemap(): MetadataRoute.Sitemap {
   return [
