@@ -28,7 +28,7 @@ export default function AuthForm({ onClose, onAuthenticated }: AuthFormProps) {
       if (isLogin) {
         const { data, error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
-        setSuccessMsg('Successfully logged in! Opening payment...');
+        setSuccessMsg('Signed in. Checking your access…');
         if (data?.user && onAuthenticated) {
           setTimeout(() => onAuthenticated(data.user.id), 400);
         }
@@ -52,6 +52,12 @@ export default function AuthForm({ onClose, onAuthenticated }: AuthFormProps) {
         });
         if (error) throw error;
 
+        if (!data.session) {
+          setSuccessMsg('Check your email to confirm your account, then sign in here. No payment is needed until you are signed in.');
+          setIsLogin(true);
+          return;
+        }
+
         // Store locally & in profiles table
         if (typeof window !== 'undefined') {
           window.localStorage.setItem('smartchess_verified_birth_year', String(yr));
@@ -68,19 +74,7 @@ export default function AuthForm({ onClose, onAuthenticated }: AuthFormProps) {
           }
         }
 
-        // If session was not auto-issued by Supabase signUp, attempt instant signIn
-        if (!data?.session) {
-          try {
-            const signInRes = await supabase.auth.signInWithPassword({ email, password });
-            if (signInRes.data?.user) {
-              currentUserId = signInRes.data.user.id;
-            }
-          } catch (signInErr) {
-            console.log('Instant sign in after signup notice:', signInErr);
-          }
-        }
-
-        setSuccessMsg('Account created successfully! Opening payment gateway...');
+        setSuccessMsg('Account created. Checking your access…');
         if (currentUserId && onAuthenticated) {
           setTimeout(() => onAuthenticated(currentUserId!), 400);
         }
@@ -95,7 +89,7 @@ export default function AuthForm({ onClose, onAuthenticated }: AuthFormProps) {
   const handleGoogleAuth = async () => {
     setErrorMsg('');
     try {
-      const { error } = await supabase.auth.signInWithOAuth({ provider: 'google' });
+      const { error } = await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin } });
       if (error) throw error;
     } catch (err: any) {
       setErrorMsg(err.message || 'Failed to authenticate with Google.');

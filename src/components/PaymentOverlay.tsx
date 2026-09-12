@@ -1,13 +1,13 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
 import { supabase } from '../utils/supabaseClient';
 import { Loader2 } from 'lucide-react';
 
 interface PaymentOverlayProps {
   userId: string;
-  onSuccess: () => void;
+  onSuccess: () => void | Promise<void>;
   onLogout: () => void;
 }
 
@@ -20,46 +20,53 @@ declare global {
 export function PaymentOverlay({ userId, onSuccess, onLogout }: PaymentOverlayProps) {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [pending, setPending] = useState<any>(null);
+  useEffect(() => {
+    try { setPending(JSON.parse(localStorage.getItem(`chess_payment_${userId}`) || 'null')); } catch {}
+  }, [userId]);
+
+  const verify = async (response: any) => {
+    setLoading(true);
+    setErrorMsg('');
+    try {
+      await api.verifyRazorpayPayment(response.razorpay_order_id, response.razorpay_payment_id, response.razorpay_signature, userId);
+      await onSuccess();
+      localStorage.removeItem(`chess_payment_${userId}`);
+      setPending(null);
+    } catch (err: any) {
+      setErrorMsg(`${err.message || 'Could not confirm access.'} Your payment reference is ${response.razorpay_payment_id}. Retry verification without paying again.`);
+    } finally { setLoading(false); }
+  };
 
   const handlePayment = async () => {
     try {
       setLoading(true);
       setErrorMsg('');
+      if (pending) { await verify(pending); return; }
+      if (!window.Razorpay) throw new Error('Checkout is still loading. Please try again.');
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session || session.user.id !== userId) throw new Error('Please sign in again before paying.');
 
       // 1. Create Order on Backend
       const orderData = await api.createRazorpayOrder(userId);
 
       // 2. Open Razorpay Checkout
       const options = {
-        key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || 'rzp_test_TTYoP1jpVr4bFq',
+        key: orderData.key_id,
         amount: orderData.amount,
         currency: orderData.currency,
         name: 'Smart Chess',
         description: 'Unlock full access to Smart Chess',
         order_id: orderData.order_id,
         handler: async function (response: any) {
-          try {
-            setLoading(true);
-            // 3. Verify Payment
-            await api.verifyRazorpayPayment(
-              response.razorpay_order_id,
-              response.razorpay_payment_id,
-              response.razorpay_signature,
-              userId
-            );
-            
-            // 4. Update Profile to Premium (Frontend handles this because backend uses anon key)
-            await supabase.from('profiles').update({ is_premium: true }).eq('id', userId);
-            
-            onSuccess();
-          } catch (err: any) {
-            setErrorMsg(err.message || 'Payment verification failed.');
-            setLoading(false);
-          }
+          setPending(response);
+          try { localStorage.setItem(`chess_payment_${userId}`, JSON.stringify(response)); } catch {}
+          await verify(response);
         },
+        modal: { ondismiss: () => setLoading(false) },
         prefill: {
-          name: 'Chess Player',
-          email: 'player@example.com',
+          name: session.user.user_metadata?.display_name || '',
+          email: session.user.email || '',
         },
         theme: {
           color: '#10b981',
@@ -97,7 +104,7 @@ export function PaymentOverlay({ userId, onSuccess, onLogout }: PaymentOverlayPr
           disabled={loading}
           className="mb-4 flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-4 text-lg font-semibold text-white transition-colors hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {loading ? <Loader2 className="h-6 w-6 animate-spin" /> : 'Pay ₹1 to Play'}
+          {loading ? <Loader2 className="h-6 w-6 animate-spin" /> : pending ? 'Retry payment verification' : 'Pay ₹1 to Play'}
         </button>
 
         <button

@@ -8,6 +8,10 @@ import { CoachOverlay } from './CoachOverlay';
 import { MoveLog } from './MoveLog';
 import AuthForm from './AuthForm';
 import { useSession, isAdultFromBirthYear } from '../utils/useSession';
+import { RoastAgeGateModal } from './RoastAgeGateModal';
+import { supabase } from '../utils/supabaseClient';
+import { roastForMove, RoastContext } from '../utils/roastContext';
+import { speakCoachMessage, dispatchSubtitle } from '../utils/soundEffects';
 import { PaymentOverlay } from './PaymentOverlay';
 import { TrialTimer } from './TrialTimer';
 import { ProfileDropdown } from './ProfileDropdown';
@@ -28,7 +32,8 @@ import {
   speakRoastMoveCategory,
   speakRoastPreMoveWarning,
   speakRoastUndo,
-  speakRoastGameOver
+  speakRoastGameOver,
+  speakRoastSlowPlay
 } from '../utils/coachVoice';
 
 export interface ToastProps {
@@ -69,7 +74,7 @@ const ratingTier = (r: number) =>
   r < 2600 ? 'Expert' : r < 2900 ? 'Master' : 'Near-Maximum (very hard)';
 
 function App() {
-  const { session, isPremium, profile, loading: sessionLoading, fetchPremiumStatus, logout, mergeProfile } = useSession();
+  const { session, isPremium, profile, loading: sessionLoading, error: sessionError, fetchPremiumStatus, logout, mergeProfile } = useSession();
   const [gameMode, setGameMode] = useState<GameMode>('you_vs_robot');
   const [puzzleLevel, setPuzzleLevel] = useState(1);
   const [puzzleSessionId, setPuzzleSessionId] = useState<string | null>(null);
@@ -122,57 +127,43 @@ function App() {
 
   // Roast Mode (18+) State
   const [isRoastMode, setIsRoastMode] = useState<boolean>(false);
+  const roastEnabledRef = useRef(false);
+  roastEnabledRef.current = isRoastMode;
   const [currentRoastWarning, setCurrentRoastWarning] = useState<string>('');
 
-  // Persistent LocalStorage and Profile sync for Roast Mode
+  const [showRoastGate, setShowRoastGate] = useState(false);
+  const moveRoastContext = useRef<RoastContext | null>(null);
+  const roastConsentKey = session?.user?.id ? `chess_roast_mode_verified_18_${session.user.id}` : null;
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const savedRoast = window.localStorage.getItem('smartchess_roast_mode');
-    if (savedRoast === 'true') {
-      const verifiedBirthYear = window.localStorage.getItem('smartchess_verified_birth_year');
-      const userBirthYear = profile?.birth_year || (verifiedBirthYear ? parseInt(verifiedBirthYear, 10) : null);
-      if (userBirthYear && isAdultFromBirthYear(userBirthYear)) {
-        setIsRoastMode(true);
-      } else {
-        setIsRoastMode(false);
-        window.localStorage.removeItem('smartchess_roast_mode');
-      }
+    setIsRoastMode(false);
+    setShowRoastGate(false);
+    setCurrentRoastWarning('');
+    dispatchSubtitle('');
+    window.speechSynthesis?.cancel();
+    if (roastConsentKey && isAdultFromBirthYear(profile?.birth_year)) {
+      try { setIsRoastMode(localStorage.getItem(roastConsentKey) === 'true'); } catch {}
     }
-  }, [profile?.birth_year]);
+  }, [roastConsentKey, profile?.birth_year]);
 
   const handleToggleRoastMode = () => {
     if (isRoastMode) {
       setIsRoastMode(false);
-      if (typeof window !== 'undefined') {
-        window.localStorage.setItem('smartchess_roast_mode', 'false');
-      }
-      setToastMessage('Roast Mode turned OFF. Polite Coach active.');
+      setCurrentRoastWarning('');
+      dispatchSubtitle('');
+      window.speechSynthesis?.cancel();
+      if (roastConsentKey) localStorage.removeItem(roastConsentKey);
       return;
     }
-
-    const verifiedBirthYear = typeof window !== 'undefined' ? window.localStorage.getItem('smartchess_verified_birth_year') : null;
-    const birthYear = profile?.birth_year || (verifiedBirthYear ? parseInt(verifiedBirthYear, 10) : null);
-
-    if (birthYear) {
-      if (isAdultFromBirthYear(birthYear)) {
-        setIsRoastMode(true);
-        if (typeof window !== 'undefined') {
-          window.localStorage.setItem('smartchess_roast_mode', 'true');
-        }
-        setToastMessage('🔥 Roast Mode (18+) ACTIVATED! Get ready to be humiliated.');
-      } else {
-        const currentYear = new Date().getFullYear();
-        setToastMessage(`🔞 Roast Mode is strictly 18+. You are ${currentYear - birthYear} years old.`);
-      }
-    } else {
-      if (!session) {
-        setToastMessage('Please sign in or create an account with your birth year to unlock Roast Mode (18+).');
-        setShowPaywallModal(true);
-      } else {
-        setToastMessage('Please set your Birth Year in your Profile dropdown to unlock Roast Mode (18+).');
-        setIsProfileOpen(true);
-      }
+    if (!session) {
+      setToastMessage('Sign in before enabling adult commentary.');
+      setShowPaywallModal(true);
+      return;
     }
+    if (profile?.birth_year && !isAdultFromBirthYear(profile.birth_year)) {
+      setToastMessage('Roast Mode is restricted to adults aged 18 or older.');
+      return;
+    }
+    setShowRoastGate(true);
   };
 
   const previousFenRef = useRef(START_FEN);
@@ -263,6 +254,14 @@ function App() {
       return false;
     }
   }, [fen, gameMode, playerColor, isRobotThinking]);
+
+  useEffect(() => {
+    if (!isRoastMode || !isPlayerTurn || isThinking || isRobotThinking || warningActive || showPaywallModal || showRoastGate || gameMode !== 'you_vs_robot') return;
+    const timer = setTimeout(() => {
+      if (document.visibilityState === 'visible' && !window.speechSynthesis?.speaking) speakRoastSlowPlay(coachVoiceEnabled);
+    }, 25000);
+    return () => clearTimeout(timer);
+  }, [fen, isRoastMode, isPlayerTurn, isThinking, isRobotThinking, warningActive, showPaywallModal, showRoastGate, gameMode, coachVoiceEnabled]);
 
   const [isConnecting, setIsConnecting] = useState(false);
 
@@ -571,6 +570,12 @@ function App() {
 
         const preRes = await api.precheckMove(gameId!, moveUci);
 
+        moveRoastContext.current = {
+          fen, move: moveUci, label: preRes.label,
+          cpLoss: preRes.cp_loss ?? undefined, bestMove: preRes.best_move_uci,
+          reply: preRes.threat_preview?.opponent_best_reply,
+          recentMoves: history.map(item => item.san),
+        };
         const label = preRes.label || 'Move';
         const labelMap: Record<string, string> = {
           Brilliant: 'Brilliant',
@@ -596,7 +601,7 @@ function App() {
         const isBoxTier = learnerMode && Boolean(preRes.is_box_tier);
 
         if (isBoxTier) {
-          if (isRoastMode) {
+          if (roastEnabledRef.current) {
             const roastText = speakRoastPreMoveWarning(coachVoiceEnabled);
             setCurrentRoastWarning(roastText);
           } else {
@@ -641,7 +646,7 @@ function App() {
         // Play sound now with the original pre-move fen (before setFen updates state)
         playMoveSoundForUci(preMovefen, moveUci);
         if (targetFen) setFen(targetFen);
-        await commitAndFinalize(moveUci, true);
+        await commitAndFinalize(moveUci, !isRoastMode);
       } catch (err) {
         handleError(err);
       } finally {
@@ -690,8 +695,10 @@ function App() {
       const cleanLabel = labelMap[label] || label;
       setClassification(cleanLabel);
       if (!skipVoice) {
-        if (isRoastMode) {
-          speakRoastMoveCategory(cleanLabel, undefined, history.length <= 6, coachVoiceEnabled);
+        if (roastEnabledRef.current) {
+          const context = moveRoastContext.current;
+          if (context?.move === moveUci) speakCoachMessage(roastForMove({ ...context, label: cleanLabel }), undefined, coachVoiceEnabled);
+          else speakRoastMoveCategory(cleanLabel, undefined, false, coachVoiceEnabled);
         } else {
           speakMoveCategory(cleanLabel, coachVoiceEnabled);
         }
@@ -722,7 +729,7 @@ function App() {
         } else if (chess.isDraw()) {
           msg = '🤝 Game Over! The game ended in a draw.';
           if (isRoastMode) {
-            speakRoastGameOver('stalemate', coachVoiceEnabled);
+            speakRoastGameOver(chess.isStalemate() ? 'stalemate' : 'draw', coachVoiceEnabled);
           }
         }
         setCoachMessage(msg);
@@ -766,7 +773,7 @@ function App() {
         } else if (chess.isDraw()) {
           msg = '🤝 Game Over! The game ended in a draw.';
           if (isRoastMode) {
-            speakRoastGameOver('stalemate', coachVoiceEnabled);
+            speakRoastGameOver(chess.isStalemate() ? 'stalemate' : 'draw', coachVoiceEnabled);
           }
         }
         setCoachMessage(msg);
@@ -1332,17 +1339,31 @@ function App() {
         </div>
       </div>
 
+      {showRoastGate && <RoastAgeGateModal
+        isOpen={showRoastGate}
+        initialBirthYear={profile?.birth_year}
+        onClose={() => setShowRoastGate(false)}
+        onVerified={async (year) => {
+          if (!roastConsentKey) return;
+          const { error } = await supabase.auth.updateUser({ data: { birth_year: year } });
+          if (error) throw error;
+          localStorage.setItem(roastConsentKey, 'true');
+          mergeProfile({ birth_year: year });
+          setIsRoastMode(true);
+          setShowRoastGate(false);
+        }}
+      />}
       {/* Auth / Paywall Modal */}
       {showPaywallModal && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/90 p-4 backdrop-blur-xl">
-          {(!session && !newRegisteredUserId) ? (
+          {!session ? (
             <div className="w-full max-w-md">
               <AuthForm 
                 onClose={() => {
                   setNewRegisteredUserId(null);
                   setShowPaywallModal(false);
                 }} 
-                onAuthenticated={(uid) => setNewRegisteredUserId(uid)}
+                onAuthenticated={() => setNewRegisteredUserId(null)}
               />
             </div>
           ) : (
@@ -1357,10 +1378,12 @@ function App() {
               >
                 <X className="h-5 w-5" />
               </button>
-              <PaymentOverlay 
+              {sessionError ? <div role="alert" className="p-8 text-white">{sessionError}<button className="block mt-4 min-h-11 underline" onClick={() => void fetchPremiumStatus(session.user)}>Retry access check</button></div> : sessionLoading || isPremium === null ? <p className="p-8 text-white">Checking your account access…</p> : <PaymentOverlay
                 userId={session?.user?.id || newRegisteredUserId!} 
-                onSuccess={() => {
-                  if (session?.user?.id) fetchPremiumStatus(session.user.id);
+                onSuccess={async () => {
+                  if (!session?.user || !(await fetchPremiumStatus(session.user))) {
+                    throw new Error('Payment verified, but access could not be refreshed.');
+                  }
                   setNewRegisteredUserId(null);
                   setShowPaywallModal(false);
                 }} 
@@ -1368,7 +1391,7 @@ function App() {
                   logout();
                   setNewRegisteredUserId(null);
                 }} 
-              />
+              />}
             </div>
           )}
         </div>

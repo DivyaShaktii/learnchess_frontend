@@ -171,13 +171,14 @@ export function speakRoastSlowPlay(playAudio: boolean = true): string {
 }
 
 export function speakRoastGameOver(
-  outcome: 'robot_wins' | 'player_wins' | 'stalemate',
+  outcome: 'robot_wins' | 'player_wins' | 'stalemate' | 'draw',
   playAudio: boolean = true
 ): string {
   if (typeof window === 'undefined') return '';
   let category: RoastCategoryKey = 'CHECKMATE_ROBOT_WINS';
   if (outcome === 'player_wins') category = 'CHECKMATE_PLAYER_WINS';
   if (outcome === 'stalemate') category = 'STALEMATE';
+  if (outcome === 'draw') category = 'DRAW';
 
   const line = getRandomRoast(category);
   speakCoachMessage(line, undefined, playAudio);

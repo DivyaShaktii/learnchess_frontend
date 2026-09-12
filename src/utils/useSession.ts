@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { supabase } from './supabaseClient';
 
 export function useSession() {
@@ -6,6 +6,8 @@ export function useSession() {
   const [isPremium, setIsPremium] = useState<boolean | null>(null);
   const [profile, setProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const generation = useRef(0);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -19,12 +21,15 @@ export function useSession() {
           }
         } catch {}
       }
-      fetchPremiumStatus(session?.user);
+      void fetchPremiumStatus(session?.user);
     });
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
+      generation.current++;
+      setLoading(true);
+      setIsPremium(null);
       setSession(session);
       if (session?.user) {
         try {
@@ -34,27 +39,21 @@ export function useSession() {
           }
         } catch {}
       }
-      fetchPremiumStatus(session?.user);
+      // Supabase auth callbacks execute under the auth lock. Fetch after it releases.
+      setTimeout(() => void fetchPremiumStatus(session?.user), 0);
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
   const fetchPremiumStatus = async (user: any) => {
+    const request = ++generation.current;
+    setError('');
     if (!user) {
       setIsPremium(false);
       setProfile(null);
       setLoading(false);
       return;
-    }
-    const userEmail = user.email?.toLowerCase().trim() || '';
-    const isExemptAdmin = (
-      userEmail === 'janhavikolekar280@gmail.com' ||
-      userEmail === 'janhavikolkar280@gmail.com' ||
-      userEmail.startsWith('janhavikolekar')
-    );
-    if (isExemptAdmin) {
-      setIsPremium(true);
     }
 
     // 1. Check localStorage
@@ -71,7 +70,7 @@ export function useSession() {
         .from('profiles')
         .select('*')
         .eq('id', user.id)
-        .maybeSingle();
+        .abortSignal(AbortSignal.timeout(10000)).maybeSingle();
       if (!error && data) {
         dbProfile = data;
       }
@@ -82,12 +81,21 @@ export function useSession() {
     // 3. Fetch from Backend (for total_games, opponent rating history, etc.)
     let backendData: any = {};
     try {
-      const res = await fetch(`http://localhost:8000/api/user/profile?user_id=${user.id}`);
+      const { data: auth } = await supabase.auth.getSession();
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'}/api/user/profile?user_id=${user.id}`, {
+        headers: { Authorization: `Bearer ${auth.session?.access_token || ''}` },
+        signal: AbortSignal.timeout(10000),
+      });
       if (res.ok) {
         backendData = await res.json();
-      }
+      } else { throw new Error('Unable to check account access. Please retry.'); }
     } catch (e) {
-      console.error('Failed to fetch backend profile', e);
+      if (request === generation.current) {
+        setError('Unable to check account access. Please retry; no new payment is needed.');
+        setIsPremium(null);
+        setLoading(false);
+      }
+      return false;
     }
 
     // 4. Supabase Auth user metadata
@@ -133,6 +141,8 @@ export function useSession() {
       ...(backendData || {}),
       ...(dbProfile || {}),
       ...(localData || {}),
+      // Entitlements must never come from browser storage or user metadata.
+      is_premium: backendData.is_premium === true,
       display_name: resolvedDisplayName,
       avatar_url: resolvedAvatarUrl,
       predicted_rating: resolvedRating,
@@ -140,6 +150,7 @@ export function useSession() {
       birth_year: resolvedBirthYear ? Number(resolvedBirthYear) : null,
     };
 
+    if (request !== generation.current) return;
     setProfile(mergedProfile);
 
     // Write resolved profile back to localStorage
@@ -147,13 +158,10 @@ export function useSession() {
       localStorage.setItem(`smartchess_profile_${user.id}`, JSON.stringify(mergedProfile));
     } catch {}
 
-    if (isExemptAdmin) {
-      setIsPremium(true);
-    } else {
-      setIsPremium(mergedProfile?.is_premium || false);
-    }
+    setIsPremium(mergedProfile.is_premium);
 
     setLoading(false);
+    return mergedProfile.is_premium;
   };
 
   const logout = async () => {
@@ -179,7 +187,7 @@ export function useSession() {
     });
   };
 
-  return { session, isPremium, profile, loading, fetchPremiumStatus, logout, mergeProfile };
+  return { session, isPremium, profile, loading, error, fetchPremiumStatus, logout, mergeProfile };
 }
 
 export function isAdultFromBirthYear(birthYear?: number | string | null): boolean {

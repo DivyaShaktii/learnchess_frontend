@@ -1,4 +1,10 @@
+import { supabase } from '../utils/supabaseClient';
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
+async function paymentHeaders() {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('Please confirm your email and sign in before paying.');
+  return { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` };
+}
 
 export interface ThreatPreview {
   opponent_best_reply: string;
@@ -179,10 +185,10 @@ export const api = {
     return fetchWithCheck(`${API_BASE}/api/puzzles/hint/${sessionId}`);
   },
 
-  async createRazorpayOrder(userId: string): Promise<{ order_id: string; amount: number; currency: string }> {
+  async createRazorpayOrder(userId: string): Promise<{ order_id: string; amount: number; currency: string; key_id: string }> {
     return fetchWithCheck(`${API_BASE}/api/payment/create-order`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: await paymentHeaders(),
       body: JSON.stringify({ user_id: userId }),
     });
   },
@@ -190,7 +196,7 @@ export const api = {
   async verifyRazorpayPayment(orderId: string, paymentId: string, signature: string, userId: string): Promise<{ status: string }> {
     return fetchWithCheck(`${API_BASE}/api/payment/verify`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: await paymentHeaders(),
       body: JSON.stringify({
         razorpay_order_id: orderId,
         razorpay_payment_id: paymentId,
@@ -204,4 +210,3 @@ export const api = {
     return fetchWithCheck(`${API_BASE}/api/user/games?user_id=${userId}`);
   },
 };
-

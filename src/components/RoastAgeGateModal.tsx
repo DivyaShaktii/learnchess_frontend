@@ -1,11 +1,11 @@
 "use client";
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { X, Flame, ShieldAlert, AlertTriangle } from "lucide-react";
 
 interface RoastAgeGateModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onVerified: (birthYear: number) => void;
+  onVerified: (birthYear: number) => void | Promise<void>;
   initialBirthYear?: number | null;
 }
 
@@ -19,12 +19,30 @@ export function RoastAgeGateModal({
     initialBirthYear ? String(initialBirthYear) : ""
   );
   const [error, setError] = useState<string | null>(null);
+  const [confirmed, setConfirmed] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const dialog = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!isOpen) return;
+    const previous = document.activeElement as HTMLElement | null;
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !saving) onClose();
+      if (event.key !== 'Tab') return;
+      const elements = dialog.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled)');
+      if (!elements?.length) return;
+      const first = elements[0], last = elements[elements.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    };
+    document.addEventListener('keydown', keydown);
+    return () => { document.removeEventListener('keydown', keydown); previous?.focus(); };
+  }, [isOpen, onClose, saving]);
 
   if (!isOpen) return null;
 
   const currentYear = new Date().getFullYear();
 
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
     setError(null);
     const yr = parseInt(birthYear.trim(), 10);
     if (isNaN(yr) || yr < 1920 || yr > currentYear) {
@@ -40,13 +58,16 @@ export function RoastAgeGateModal({
       return;
     }
 
-    onVerified(yr);
-    onClose();
+    if (!confirmed) { setError('Confirm that you are already 18 and want explicit commentary.'); return; }
+    setSaving(true);
+    try { await onVerified(yr); onClose(); }
+    catch { setError('Could not save your confirmation. Please try again.'); }
+    finally { setSaving(false); }
   };
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
-      <div className="w-full max-w-md bg-gradient-to-b from-zinc-950 via-[#100707] to-zinc-950 border border-red-900/60 rounded-2xl shadow-2xl shadow-red-950/40 overflow-hidden text-zinc-100">
+      <div ref={dialog} role="dialog" aria-modal="true" aria-labelledby="roast-title" className="w-full max-w-md bg-gradient-to-b from-zinc-950 via-[#100707] to-zinc-950 border border-red-900/60 rounded-2xl shadow-2xl shadow-red-950/40 overflow-hidden text-zinc-100">
         
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-red-900/40 bg-red-950/30">
@@ -58,10 +79,12 @@ export function RoastAgeGateModal({
               <span className="text-[10px] uppercase tracking-widest font-black text-red-400 bg-red-950/80 border border-red-800/60 px-1.5 py-0.5 rounded">
                 18+ Restricted
               </span>
-              <h2 className="text-base font-bold text-zinc-100 mt-0.5">Enter Roast Mode</h2>
+              <h2 id="roast-title" className="text-base font-bold text-zinc-100 mt-0.5">Enter Roast Mode</h2>
             </div>
           </div>
           <button
+            aria-label="Close adult content confirmation"
+            disabled={saving}
             onClick={onClose}
             className="text-zinc-500 hover:text-zinc-300 transition-colors p-1 rounded-lg hover:bg-zinc-800/60"
           >
@@ -80,11 +103,12 @@ export function RoastAgeGateModal({
           </div>
 
           <div>
-            <label className="text-xs font-semibold text-zinc-400 uppercase tracking-wider block mb-1.5">
+            <label htmlFor="roast-birth-year" className="text-xs font-semibold text-zinc-400 uppercase tracking-wider block mb-1.5">
               Enter Your Birth Year
             </label>
             <div className="relative">
               <input
+                id="roast-birth-year"
                 type="number"
                 placeholder="e.g. 2002"
                 min={1920}
@@ -106,6 +130,10 @@ export function RoastAgeGateModal({
             </p>
           </div>
 
+          <label className="flex items-center gap-3 min-h-11 text-sm text-zinc-200">
+            <input type="checkbox" checked={confirmed} onChange={e => setConfirmed(e.target.checked)} />
+            I am already 18 or older and consent to explicit language and personal roasts.
+          </label>
           {error && (
             <div className="p-3 bg-red-900/30 border border-red-800/60 rounded-xl text-xs text-red-300 flex items-start gap-2">
               <ShieldAlert className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
@@ -124,10 +152,11 @@ export function RoastAgeGateModal({
           </button>
           <button
             onClick={handleConfirm}
+            disabled={saving || !confirmed}
             className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-red-700 via-red-600 to-amber-600 hover:from-red-600 hover:to-amber-500 text-xs font-bold text-white shadow-lg shadow-red-950/60 transition-all flex items-center justify-center gap-1.5"
           >
             <Flame size={14} />
-            Unlock Roast Mode
+            {saving ? 'Saving…' : "I’m 18+ — enable roast mode"}
           </button>
         </div>
       </div>

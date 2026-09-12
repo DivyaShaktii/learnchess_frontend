@@ -144,8 +144,12 @@ export function speakCoachMessage(text: string, onEnd?: () => void, playAudio: b
     utterance.volume = 1.0;
 
     utterance.onend = () => {
+      if (currentUtterance !== utterance) return;
       clearSubtitleAfter(2000);
       if (onEnd) onEnd();
+    };
+    utterance.onerror = () => {
+      if (currentUtterance === utterance) clearSubtitleAfter(Math.max(5000, text.length * 60));
     };
 
     window.speechSynthesis.speak(utterance);

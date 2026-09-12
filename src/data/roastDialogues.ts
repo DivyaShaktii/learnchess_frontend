@@ -3,7 +3,7 @@
 
 export const ROAST_CATEGORIES = {
   MAJOR_BLUNDERS: [
-    "You hung your Queen, you dumb fuck.",
+    "You threw away the position, you dumb fuck.",
     "What the fuck was that?",
     "Are you brain-dead?",
     "Delete the fucking game, clown.",
@@ -169,18 +169,32 @@ export const ROAST_CATEGORIES = {
     "Enjoy your five seconds of glory.",
   ],
 
+  DRAW: [
+    'A draw. Neither of us gets a damn trophy.',
+    'All that thinking for half a point, genius.',
+    'Nobody won. Your ego can stand down.',
+    'Dead even. Try something sharper next time.',
+    'A draw. My victory speech is cancelled.',
+    'Half a point. Do not spend it all at once.',
+    'Equal result. Unequal amounts of trash talk.',
+    'A draw, hotshot. Set up the rematch.',
+    'We split the point. Keep your victory dance packed.',
+    'Nobody gets bragging rights today, clown.',
+    'A tie. I suppose your king can breathe again.',
+    'No winner. What a dramatic way to go nowhere.',
+  ],
   STALEMATE: [
     "A stalemate?! You absolute fucking idiot.",
-    "How did you choke that, clown?",
-    "You had a Queen and stalemated, dumbass?",
+    "A stalemate, clown. The king needs to be in check.",
+    "No legal moves and no check. Stalemate, dumbass.",
     "Pathetic draw. You should be ashamed.",
-    "Snatched a draw from winning, moron.",
+    "Stalemate means a draw. Learn the difference, hotshot.",
     "Everyone's laughing at you, dipshit.",
-    "One job: mate the king. Failed, idiot.",
-    "Pure clown behavior. What a choke.",
+    "A king with no moves is not automatically checkmate, idiot.",
+    "Stalemate. The king is stuck, and so is your victory speech.",
     "Draw by total incompetence, loser.",
-    "Tragic blunder. Learn how to mate.",
-    "You choked so hard it's hilarious.",
+    "No check, no mate. That is the damn rule.",
+    "Stalemate ends the game. Put the celebration away.",
     "Draw?! You should delete the game.",
   ],
 };
@@ -192,6 +206,10 @@ const usedHistory: Record<string, string[]> = {};
 
 export function getRandomRoast(category: RoastCategoryKey): string {
   const lines = ROAST_CATEGORIES[category];
+  return pickRoastLine(category, lines);
+}
+
+export function pickRoastLine(category: string, lines: string[]): string {
   if (!lines || lines.length === 0) return "What kind of move was that?!";
 
   if (!usedHistory[category]) {
@@ -218,10 +236,6 @@ export function getRandomRoast(category: RoastCategoryKey): string {
  * Maps standard classification labels and centipawn loss to the corresponding Roast category
  */
 export function getRoastCategoryForMove(label: string, cpLoss?: number, isOpening?: boolean): RoastCategoryKey {
-  if (isOpening) {
-    return 'OPENING_PRINCIPLES';
-  }
-
   const normalized = (label || '').toLowerCase();
 
   if (normalized.includes('blunder') || normalized.includes('worst') || (cpLoss !== undefined && cpLoss >= 300)) {

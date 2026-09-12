@@ -140,6 +140,7 @@ export function CoachOverlay({
         )}
 
         <div className="flex flex-wrap items-center justify-center gap-3 px-6 py-4">
+          {isRoastMode && <button onClick={handleDismiss} className="min-h-11 rounded-lg border border-zinc-600 px-4 py-2 text-sm text-zinc-100">Cancel My Stupidity</button>}
           <button
             onClick={handlePlayAnyway}
             className={`flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-bold transition-all ${
