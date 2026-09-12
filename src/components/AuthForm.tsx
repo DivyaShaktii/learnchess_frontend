@@ -1,8 +1,9 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Mail, Lock, LogIn, UserPlus, X, Loader2, Calendar } from 'lucide-react';
+import { ArrowLeft, Calendar, KeyRound, Loader2, Lock, LogIn, Mail, UserPlus, X } from 'lucide-react';
 import { supabase } from '../utils/supabaseClient';
+import { getAuthRedirectUrl } from '../utils/authRedirect';
 
 interface AuthFormProps {
   onClose?: () => void;
@@ -10,7 +11,7 @@ interface AuthFormProps {
 }
 
 export default function AuthForm({ onClose, onAuthenticated }: AuthFormProps) {
-  const [isLogin, setIsLogin] = useState(true);
+  const [authMode, setAuthMode] = useState<'login' | 'signup' | 'forgot'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [birthYear, setBirthYear] = useState('');
@@ -25,8 +26,19 @@ export default function AuthForm({ onClose, onAuthenticated }: AuthFormProps) {
     setSuccessMsg('');
 
     try {
-      if (isLogin) {
-        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      const normalizedEmail = email.trim().toLowerCase();
+
+      if (authMode === 'forgot') {
+        const { error } = await supabase.auth.resetPasswordForEmail(normalizedEmail, {
+          redirectTo: getAuthRedirectUrl('/auth/reset-password'),
+        });
+        if (error) throw error;
+        setSuccessMsg('If an account exists for that email, a password-reset link is on its way.');
+        return;
+      }
+
+      if (authMode === 'login') {
+        const { data, error } = await supabase.auth.signInWithPassword({ email: normalizedEmail, password });
         if (error) throw error;
         setSuccessMsg('Signed in. Checking your access…');
         if (data?.user && onAuthenticated) {
@@ -42,9 +54,10 @@ export default function AuthForm({ onClose, onAuthenticated }: AuthFormProps) {
         }
 
         const { data, error } = await supabase.auth.signUp({
-          email,
+          email: normalizedEmail,
           password,
           options: {
+            emailRedirectTo: getAuthRedirectUrl('/auth/callback'),
             data: {
               birth_year: yr,
             },
@@ -54,7 +67,7 @@ export default function AuthForm({ onClose, onAuthenticated }: AuthFormProps) {
 
         if (!data.session) {
           setSuccessMsg('Check your email to confirm your account, then sign in here. No payment is needed until you are signed in.');
-          setIsLogin(true);
+          setAuthMode('login');
           return;
         }
 
@@ -87,13 +100,35 @@ export default function AuthForm({ onClose, onAuthenticated }: AuthFormProps) {
   };
 
   const handleGoogleAuth = async () => {
+    setLoading(true);
     setErrorMsg('');
+    setSuccessMsg('');
     try {
-      const { error } = await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin } });
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: getAuthRedirectUrl('/auth/callback'),
+          queryParams: {
+            prompt: 'select_account',
+          },
+        },
+      });
       if (error) throw error;
+      if (!data.url) throw new Error('Google sign-in could not be started.');
     } catch (err: any) {
       setErrorMsg(err.message || 'Failed to authenticate with Google.');
+      setLoading(false);
     }
+  };
+
+  const isLogin = authMode === 'login';
+  const isSignup = authMode === 'signup';
+  const isForgot = authMode === 'forgot';
+
+  const changeMode = (mode: 'login' | 'signup' | 'forgot') => {
+    setAuthMode(mode);
+    setErrorMsg('');
+    setSuccessMsg('');
   };
 
   return (
@@ -109,18 +144,23 @@ export default function AuthForm({ onClose, onAuthenticated }: AuthFormProps) {
 
       <div className="border-b border-zinc-800 p-6 text-center">
         <h2 className="text-2xl font-bold tracking-tight text-white">
-          {isLogin ? 'Welcome back' : 'Create an account'}
+          {isLogin ? 'Welcome back' : isSignup ? 'Create an account' : 'Reset your password'}
         </h2>
         <p className="mt-2 text-sm text-zinc-400">
-          {isLogin ? 'Enter your details to sign in.' : 'Join Smart Chess to track your progress.'}
+          {isLogin
+            ? 'Enter your details to sign in.'
+            : isSignup
+              ? 'Join Smart Chess to track your progress.'
+              : 'Enter your email and we will send you a secure reset link.'}
         </p>
       </div>
 
       <div className="p-6">
-        {/* Social Auth */}
-        <div className="mb-6 space-y-3">
+        {!isForgot && <div className="mb-6 space-y-3">
           <button 
+            type="button"
             onClick={handleGoogleAuth}
+            disabled={loading}
             className="flex w-full items-center justify-center gap-3 rounded-xl bg-white px-4 py-3 text-sm font-semibold text-zinc-900 transition-colors hover:bg-zinc-200"
           >
             <svg className="h-5 w-5" viewBox="0 0 24 24">
@@ -131,16 +171,16 @@ export default function AuthForm({ onClose, onAuthenticated }: AuthFormProps) {
             </svg>
             Continue with Google
           </button>
-        </div>
+        </div>}
 
-        <div className="relative mb-6">
+        {!isForgot && <div className="relative mb-6">
           <div className="absolute inset-0 flex items-center">
             <div className="w-full border-t border-zinc-800"></div>
           </div>
           <div className="relative flex justify-center text-xs">
             <span className="bg-[#111] px-2 text-zinc-500">OR CONTINUE WITH EMAIL</span>
           </div>
-        </div>
+        </div>}
 
         {errorMsg && (
           <div className="mb-4 rounded-lg bg-red-500/10 p-3 text-sm text-red-400 border border-red-500/20">
@@ -170,7 +210,7 @@ export default function AuthForm({ onClose, onAuthenticated }: AuthFormProps) {
             </div>
           </div>
 
-          <div className="space-y-1">
+          {!isForgot && <div className="space-y-1">
             <label className="text-xs font-medium text-zinc-400">Password</label>
             <div className="relative">
               <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
@@ -183,9 +223,9 @@ export default function AuthForm({ onClose, onAuthenticated }: AuthFormProps) {
                 className="w-full rounded-xl border border-zinc-800 bg-zinc-900/50 py-2.5 pl-10 pr-4 text-sm text-white placeholder-zinc-600 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
               />
             </div>
-          </div>
+          </div>}
 
-          {!isLogin && (
+          {isSignup && (
             <div className="space-y-1">
               <label className="text-xs font-medium text-zinc-400">Birth Year (YYYY)</label>
               <div className="relative">
@@ -212,25 +252,41 @@ export default function AuthForm({ onClose, onAuthenticated }: AuthFormProps) {
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : isLogin ? (
               <><LogIn className="h-4 w-4" /> Sign In</>
+            ) : isForgot ? (
+              <><KeyRound className="h-4 w-4" /> Send Reset Link</>
             ) : (
               <><UserPlus className="h-4 w-4" /> Create Account</>
             )}
           </button>
         </form>
 
-        <div className="mt-6 text-center text-sm text-zinc-500">
-          {isLogin ? "Don't have an account? " : "Already have an account? "}
+        {isLogin && (
           <button
             type="button"
-            onClick={() => {
-              setIsLogin(!isLogin);
-              setErrorMsg('');
-              setSuccessMsg('');
-            }}
-            className="font-medium text-emerald-400 hover:text-emerald-300"
+            onClick={() => changeMode('forgot')}
+            className="mt-4 w-full text-center text-sm font-medium text-emerald-400 hover:text-emerald-300"
           >
-            {isLogin ? 'Sign up' : 'Log in'}
+            Forgot password?
           </button>
+        )}
+
+        <div className="mt-6 text-center text-sm text-zinc-500">
+          {isForgot ? (
+            <button type="button" onClick={() => changeMode('login')} className="inline-flex items-center gap-1 font-medium text-emerald-400 hover:text-emerald-300">
+              <ArrowLeft className="h-4 w-4" /> Back to sign in
+            </button>
+          ) : (
+            <>
+              {isLogin ? "Don't have an account? " : "Already have an account? "}
+              <button
+                type="button"
+                onClick={() => changeMode(isLogin ? 'signup' : 'login')}
+                className="font-medium text-emerald-400 hover:text-emerald-300"
+              >
+                {isLogin ? 'Sign up' : 'Log in'}
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>
