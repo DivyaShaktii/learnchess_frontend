@@ -142,6 +142,7 @@ function App() {
   const followUpGenerationRef = useRef(0);
   const lastSpokenMessageRef = useRef('');
   const hasSpokenInitialGreeting = useRef(false);
+  const hasSpokenBookMoveRef = useRef(false);
   const roastConsentKey = session?.user?.id ? `chess_roast_mode_verified_18_${session.user.id}` : null;
   useEffect(() => {
     setIsRoastMode(false);
@@ -458,6 +459,7 @@ function App() {
       setSquareSuggestions([]);
       lastSpokenMessageRef.current = '';
       hasSpokenInitialGreeting.current = false;
+      hasSpokenBookMoveRef.current = false;
       resetWarningState();
 
       const activeMode = overrideMode || gameMode;
@@ -665,9 +667,11 @@ function App() {
         setAlternatives(preRes.top_alternatives ?? []);
         setRefutationSequence(preRes.refutation_sequence ?? []);
 
-        const isBoxTier = learnerMode && Boolean(preRes.is_box_tier);
+        // A backend warning must always produce the decision popup while the
+        // coach is enabled. Professional mode changes tone, not move safety.
+        const shouldInterrupt = coachMode !== 'off' && Boolean(preRes.should_warn || preRes.is_box_tier);
 
-        if (isBoxTier) {
+        if (shouldInterrupt) {
           if (roastEnabledRef.current) {
             const roastText = speakRoastPreMoveWarning(coachVoiceEnabled);
             setCurrentRoastWarning(roastText);
@@ -768,7 +772,10 @@ function App() {
           if (context?.move === moveUci) speakCoachMessage(roastForMove({ ...context, label: cleanLabel }), undefined, coachVoiceEnabled);
           else speakRoastMoveCategory(cleanLabel, undefined, false, coachVoiceEnabled);
         } else {
-          speakMoveCategory(cleanLabel, coachVoiceEnabled);
+          if (cleanLabel !== 'Book' || !hasSpokenBookMoveRef.current) {
+            speakMoveCategory(cleanLabel, coachVoiceEnabled);
+            if (cleanLabel === 'Book') hasSpokenBookMoveRef.current = true;
+          }
         }
       }
 
@@ -1196,7 +1203,7 @@ function App() {
                 </p>
                 {([
                   ['normal', 'Normal', 'Guided feedback with instant mistake warnings.'],
-                  ['professional', 'Professional', 'Voice feedback without interrupting your moves.'],
+                  ['professional', 'Professional', 'Concise voice feedback with critical-move warnings.'],
                   ['roast', 'Roast · 18+', 'Unfiltered commentary with guided warnings.'],
                   ['off', 'Off', 'Disable coach voice and move warnings.'],
                 ] as const).map(([mode, label, description]) => {
