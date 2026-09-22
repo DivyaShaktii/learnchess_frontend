@@ -81,8 +81,38 @@ type AudioJob = (finish: () => void) => () => void;
 const audioQueue: AudioJob[] = [];
 let activeCleanup: (() => void) | null = null;
 let currentAudio: HTMLAudioElement | null = null;
-let selectedVoice: SpeechSynthesisVoice | null = null;
 let generation = 0;
+
+const KOKORO_PRELOAD_MESSAGES = [
+  'That is a slight inaccuracy.',
+  'Hold on, that is a mistake. Take a moment to find a better move.',
+  'That is a blunder.',
+  'That is a serious blunder.',
+  'Hold it, genius. That move deserves another look.',
+  'Watch out! Here is their plan.',
+];
+const kokoroAudioCache = new Map<string, Blob>();
+const kokoroRequests = new Map<string, Promise<Blob>>();
+
+function loadKokoroAudio(text: string): Promise<Blob> {
+  const cached = kokoroAudioCache.get(text);
+  if (cached) return Promise.resolve(cached);
+  const pending = kokoroRequests.get(text);
+  if (pending) return pending;
+
+  const request = fetch(`${API_BASE}/api/tts`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text, voice: 'af_bella', speed: 1 }),
+  }).then(async (response) => {
+    if (!response.ok) throw new Error(`TTS returned ${response.status}`);
+    const blob = await response.blob();
+    kokoroAudioCache.set(text, blob);
+    return blob;
+  }).finally(() => kokoroRequests.delete(text));
+  kokoroRequests.set(text, request);
+  return request;
+}
 
 const storedVolume = () => {
   if (typeof window === 'undefined') return 0.8;
@@ -135,39 +165,24 @@ export function stopCoachAudio(clearSubtitle = true) {
   if (clearSubtitle) dispatchSubtitle('');
 }
 
-async function resolveVoice() {
-  if (selectedVoice || typeof window === 'undefined' || !window.speechSynthesis) return selectedVoice;
-  let voices = window.speechSynthesis.getVoices();
-  if (voices.length === 0) {
-    await new Promise<void>((resolve) => {
-      const timer = setTimeout(resolve, 750);
-      window.speechSynthesis.addEventListener('voiceschanged', () => { clearTimeout(timer); resolve(); }, { once: true });
-    });
-    voices = window.speechSynthesis.getVoices();
-  }
-  selectedVoice = voices.find((v) => /en/i.test(v.lang) && /male|man|david|mark|guy|matthew|brian|george|arthur|james/i.test(v.name))
-    || voices.find((v) => /en/i.test(v.lang) && /natural|google us english/i.test(v.name))
-    || voices.find((v) => /en/i.test(v.lang)) || voices[0] || null;
-  return selectedVoice;
-}
-
 export function prepareCoachVoice() {
-  if (typeof window !== 'undefined' && 'speechSynthesis' in window) void resolveVoice();
+  if (typeof window === 'undefined') return;
+  for (const message of KOKORO_PRELOAD_MESSAGES) {
+    void loadKokoroAudio(message).catch(() => { /* A later playback can retry. */ });
+  }
 }
 
-export function speakCoachMessage(text: string, onEnd?: () => void, playAudio = true) {
+export function speakCoachMessage(text: string, onEnd?: () => void, playAudio = true, priority = false) {
   if (typeof window === 'undefined' || !text) return;
   if (!playAudio) { dispatchSubtitle(text); clearSubtitleAfter(5000); onEnd?.(); return; }
+  if (priority) stopCoachAudio(false);
   enqueueAudio((finish) => {
     dispatchSubtitle(text);
     let cancelled = false;
     let concluded = false;
-    let fallbackStarted = false;
     let objectUrl: string | null = null;
     let generatedAudio: HTMLAudioElement | null = null;
-    let speechTimer: ReturnType<typeof setTimeout> | null = null;
-    const requestController = new AbortController();
-    const requestTimer = setTimeout(() => requestController.abort(), 7000);
+    let requestTimer: ReturnType<typeof setTimeout> | null = null;
 
     const releaseGeneratedAudio = () => {
       if (generatedAudio) {
@@ -185,49 +200,16 @@ export function speakCoachMessage(text: string, onEnd?: () => void, playAudio = 
     const conclude = (failed: boolean) => {
       if (concluded || cancelled) return;
       concluded = true;
-      clearTimeout(requestTimer);
-      if (speechTimer) clearTimeout(speechTimer);
+      if (requestTimer) clearTimeout(requestTimer);
       releaseGeneratedAudio();
       if (failed) reportAudioError();
       clearSubtitleAfter(failed ? 7000 : 2000);
       onEnd?.();
       finish();
     };
-    const useBrowserVoice = () => {
-      if (fallbackStarted || concluded || cancelled) return;
-      fallbackStarted = true;
-      releaseGeneratedAudio();
-      if (!('speechSynthesis' in window)) { conclude(true); return; }
-      void resolveVoice().then((voice) => {
-        if (cancelled || concluded) return;
-        try {
-          const utterance = new SpeechSynthesisUtterance(text);
-          if (voice) utterance.voice = voice;
-          utterance.rate = 1;
-          utterance.pitch = 1;
-          utterance.volume = storedVolume();
-          utterance.onend = () => conclude(false);
-          utterance.onerror = (event) => {
-            if (event.error === 'interrupted' || event.error === 'canceled') conclude(false);
-            else conclude(true);
-          };
-          speechTimer = setTimeout(() => {
-            if (!cancelled) { window.speechSynthesis.cancel(); conclude(true); }
-          }, Math.max(10000, text.length * 180));
-          window.speechSynthesis.speak(utterance);
-        } catch { conclude(true); }
-      });
-    };
 
-    void fetch(`${API_BASE}/api/tts`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, voice: 'af_bella', speed: 1 }),
-      signal: requestController.signal,
-    }).then(async (response) => {
-      clearTimeout(requestTimer);
-      if (!response.ok) throw new Error(`TTS returned ${response.status}`);
-      const blob = await response.blob();
+    requestTimer = setTimeout(() => conclude(true), 12000);
+    void loadKokoroAudio(text).then((blob) => {
       if (cancelled || concluded) return;
       objectUrl = URL.createObjectURL(blob);
       generatedAudio = new Audio(objectUrl);
@@ -235,20 +217,16 @@ export function speakCoachMessage(text: string, onEnd?: () => void, playAudio = 
       generatedAudio.preload = 'auto';
       generatedAudio.volume = storedVolume();
       generatedAudio.onended = () => conclude(false);
-      generatedAudio.onerror = () => useBrowserVoice();
-      return generatedAudio.play().catch(() => useBrowserVoice());
+      generatedAudio.onerror = () => conclude(true);
+      return generatedAudio.play().catch(() => conclude(true));
     }).catch(() => {
-      clearTimeout(requestTimer);
-      if (!cancelled && !concluded) useBrowserVoice();
+      if (!cancelled && !concluded) conclude(true);
     });
 
     return () => {
       cancelled = true;
-      clearTimeout(requestTimer);
-      if (speechTimer) clearTimeout(speechTimer);
-      requestController.abort();
+      if (requestTimer) clearTimeout(requestTimer);
       releaseGeneratedAudio();
-      window.speechSynthesis?.cancel();
     };
   });
 }

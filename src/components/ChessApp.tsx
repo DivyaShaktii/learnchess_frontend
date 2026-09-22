@@ -678,7 +678,9 @@ function App() {
             const roastText = speakRoastPreMoveWarning(coachVoiceEnabled);
             setCurrentRoastWarning(roastText);
           } else {
-            speakMoveCategory(preRes.label, coachVoiceEnabled, preRes.explanation);
+            // The detailed explanation is already visible in the popup. Speak
+            // the short cached label immediately and interrupt stale audio.
+            speakMoveCategory(preRes.label, coachVoiceEnabled, undefined, true);
           }
           setBadMoveSquare(move.to);
           setWarningActive(true);

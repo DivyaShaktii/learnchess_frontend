@@ -18,11 +18,11 @@ const CATEGORY_MESSAGES: Record<string, string> = {
   Worst: 'That is a serious blunder.',
 };
 
-export function speakMoveCategory(label: string, playAudio: boolean = true, fallbackText?: string): void {
+export function speakMoveCategory(label: string, playAudio: boolean = true, fallbackText?: string, priority = false): void {
   if (typeof window === 'undefined') return;
 
   const text = fallbackText || CATEGORY_MESSAGES[label] || `${label} move.`;
-  speakCoachMessage(text, undefined, playAudio);
+  speakCoachMessage(text, undefined, playAudio, priority);
 }
 
 export function speakRefutationWarning(playAudio: boolean = true): void {
@@ -119,8 +119,8 @@ export function speakRoastMoveCategory(
 
 export function speakRoastPreMoveWarning(playAudio: boolean = true): string {
   if (typeof window === 'undefined') return '';
-  const line = getRandomRoast('PRE_MOVE_WARNINGS');
-  speakCoachMessage(line, undefined, playAudio);
+  const line = 'Hold it, genius. That move deserves another look.';
+  speakCoachMessage(line, undefined, playAudio, true);
   return line;
 }
 
