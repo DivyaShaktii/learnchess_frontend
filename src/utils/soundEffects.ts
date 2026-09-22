@@ -1,5 +1,7 @@
 // Web Audio API synthesizer and a single, queued coach-audio controller.
 
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
+
 class ChessSoundEngine {
   private ctx: AudioContext | null = null;
 
@@ -156,32 +158,98 @@ export function prepareCoachVoice() {
 export function speakCoachMessage(text: string, onEnd?: () => void, playAudio = true) {
   if (typeof window === 'undefined' || !text) return;
   if (!playAudio) { dispatchSubtitle(text); clearSubtitleAfter(5000); onEnd?.(); return; }
-  if (!('speechSynthesis' in window)) { dispatchSubtitle(text); reportAudioError(); clearSubtitleAfter(7000); onEnd?.(); return; }
   enqueueAudio((finish) => {
     dispatchSubtitle(text);
     let cancelled = false;
-    let safetyTimer: ReturnType<typeof setTimeout> | null = null;
-    void resolveVoice().then((voice) => {
-      if (cancelled) return;
-      try {
-        const utterance = new SpeechSynthesisUtterance(text);
-        if (voice) utterance.voice = voice;
-        utterance.rate = 1;
-        utterance.pitch = 1;
-        utterance.volume = storedVolume();
-        utterance.onend = () => { if (safetyTimer) clearTimeout(safetyTimer); clearSubtitleAfter(2000); onEnd?.(); finish(); };
-        utterance.onerror = (event) => {
-          if (safetyTimer) clearTimeout(safetyTimer);
-          if (!cancelled && event.error !== 'interrupted' && event.error !== 'canceled') reportAudioError();
-          clearSubtitleAfter(7000); onEnd?.(); finish();
-        };
-        safetyTimer = setTimeout(() => {
-          if (!cancelled) { window.speechSynthesis.cancel(); reportAudioError(); clearSubtitleAfter(7000); finish(); }
-        }, Math.max(10000, text.length * 180));
-        window.speechSynthesis.speak(utterance);
-      } catch { reportAudioError(); clearSubtitleAfter(7000); finish(); }
+    let concluded = false;
+    let fallbackStarted = false;
+    let objectUrl: string | null = null;
+    let generatedAudio: HTMLAudioElement | null = null;
+    let speechTimer: ReturnType<typeof setTimeout> | null = null;
+    const requestController = new AbortController();
+    const requestTimer = setTimeout(() => requestController.abort(), 7000);
+
+    const releaseGeneratedAudio = () => {
+      if (generatedAudio) {
+        generatedAudio.onended = null;
+        generatedAudio.onerror = null;
+        generatedAudio.pause();
+        generatedAudio.removeAttribute('src');
+        generatedAudio.load();
+      }
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      generatedAudio = null;
+      objectUrl = null;
+      currentAudio = null;
+    };
+    const conclude = (failed: boolean) => {
+      if (concluded || cancelled) return;
+      concluded = true;
+      clearTimeout(requestTimer);
+      if (speechTimer) clearTimeout(speechTimer);
+      releaseGeneratedAudio();
+      if (failed) reportAudioError();
+      clearSubtitleAfter(failed ? 7000 : 2000);
+      onEnd?.();
+      finish();
+    };
+    const useBrowserVoice = () => {
+      if (fallbackStarted || concluded || cancelled) return;
+      fallbackStarted = true;
+      releaseGeneratedAudio();
+      if (!('speechSynthesis' in window)) { conclude(true); return; }
+      void resolveVoice().then((voice) => {
+        if (cancelled || concluded) return;
+        try {
+          const utterance = new SpeechSynthesisUtterance(text);
+          if (voice) utterance.voice = voice;
+          utterance.rate = 1;
+          utterance.pitch = 1;
+          utterance.volume = storedVolume();
+          utterance.onend = () => conclude(false);
+          utterance.onerror = (event) => {
+            if (event.error === 'interrupted' || event.error === 'canceled') conclude(false);
+            else conclude(true);
+          };
+          speechTimer = setTimeout(() => {
+            if (!cancelled) { window.speechSynthesis.cancel(); conclude(true); }
+          }, Math.max(10000, text.length * 180));
+          window.speechSynthesis.speak(utterance);
+        } catch { conclude(true); }
+      });
+    };
+
+    void fetch(`${API_BASE}/api/tts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, voice: 'af_bella', speed: 1 }),
+      signal: requestController.signal,
+    }).then(async (response) => {
+      clearTimeout(requestTimer);
+      if (!response.ok) throw new Error(`TTS returned ${response.status}`);
+      const blob = await response.blob();
+      if (cancelled || concluded) return;
+      objectUrl = URL.createObjectURL(blob);
+      generatedAudio = new Audio(objectUrl);
+      currentAudio = generatedAudio;
+      generatedAudio.preload = 'auto';
+      generatedAudio.volume = storedVolume();
+      generatedAudio.onended = () => conclude(false);
+      generatedAudio.onerror = () => useBrowserVoice();
+      return generatedAudio.play().catch(() => useBrowserVoice());
+    }).catch(() => {
+      clearTimeout(requestTimer);
+      if (!cancelled && !concluded) useBrowserVoice();
     });
-    return () => { cancelled = true; if (safetyTimer) clearTimeout(safetyTimer); window.speechSynthesis.cancel(); };
+
+    return () => {
+      cancelled = true;
+      clearTimeout(requestTimer);
+      if (speechTimer) clearTimeout(speechTimer);
+      requestController.abort();
+      releaseGeneratedAudio();
+      window.speechSynthesis?.cancel();
+    };
   });
 }
 

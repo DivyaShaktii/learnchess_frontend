@@ -40,6 +40,9 @@ export interface PreMoveCheckResponse {
   should_warn: boolean;
   is_box_tier: boolean;
   warning_message: string;
+  best_win_probability?: number | null;
+  played_win_probability?: number | null;
+  win_probability_loss?: number | null;
 }
 
 export interface CommitMoveResponse {
