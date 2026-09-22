@@ -131,7 +131,7 @@ export function MoveLog({ history, playerColor = 'white', onClearLog }: MoveLogP
         style={{ scrollbarWidth: 'thin', scrollbarColor: '#2a2a2a transparent' }}
       >
         {playerMoves.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full gap-4 py-16">
+          <div className="flex min-h-32 flex-col items-center justify-center gap-3 py-6 lg:h-full lg:gap-4 lg:py-16">
             <div
               className="w-16 h-16 rounded-2xl flex items-center justify-center text-3xl"
               style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}

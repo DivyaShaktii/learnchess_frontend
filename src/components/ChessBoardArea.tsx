@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import type { CSSProperties } from 'react';
 import { Chessboard } from 'react-chessboard';
 import { Chess } from 'chess.js';
@@ -43,6 +43,8 @@ export function ChessBoardArea({
   const [moveFrom, setMoveFrom] = useState<string | null>(null);
   // Square that briefly flashes red when an illegal move is attempted
   const [illegalFlashSquare, setIllegalFlashSquare] = useState<string | null>(null);
+  const [keyboardSquare, setKeyboardSquare] = useState(orientation === 'white' ? 'a1' : 'h8');
+  const boardRef = useRef<HTMLDivElement>(null);
 
   /** Flash a square red for 500ms to signal an illegal move. */
   const flashIllegal = useCallback((square: string) => {
@@ -106,6 +108,39 @@ export function ChessBoardArea({
     setMoveFrom(null);
   };
 
+  useEffect(() => {
+    setKeyboardSquare(orientation === 'white' ? 'a1' : 'h8');
+  }, [orientation]);
+
+  useEffect(() => {
+    const chess = new Chess(fen);
+    const names: Record<string, string> = { p: 'pawn', n: 'knight', b: 'bishop', r: 'rook', q: 'queen', k: 'king' };
+    boardRef.current?.querySelectorAll<HTMLElement>('[data-square]').forEach((element) => {
+      const square = element.dataset.square;
+      if (!square) return;
+      const piece = chess.get(square as never);
+      element.id = `chess-square-${square}`;
+      element.setAttribute('role', 'gridcell');
+      element.setAttribute('aria-label', piece ? `${square}, ${piece.color === 'w' ? 'white' : 'black'} ${names[piece.type]}` : `${square}, empty`);
+    });
+  }, [fen]);
+
+  const handleBoardKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Enter', ' '].includes(event.key)) return;
+    event.preventDefault();
+    if (event.key === 'Enter' || event.key === ' ') {
+      if (onInteractionAttempt && !onInteractionAttempt()) return;
+      handleSquareClick(keyboardSquare);
+      return;
+    }
+    const file = keyboardSquare.charCodeAt(0) - 97;
+    const rank = Number(keyboardSquare[1]) - 1;
+    const direction = orientation === 'white' ? 1 : -1;
+    const nextFile = Math.max(0, Math.min(7, file + (event.key === 'ArrowRight' ? direction : event.key === 'ArrowLeft' ? -direction : 0)));
+    const nextRank = Math.max(0, Math.min(7, rank + (event.key === 'ArrowUp' ? direction : event.key === 'ArrowDown' ? -direction : 0)));
+    setKeyboardSquare(`${String.fromCharCode(97 + nextFile)}${nextRank + 1}`);
+  };
+
   const handlePieceDrop = (sourceSquare: string, targetSquare: string, piece: string) => {
     if (!isPlayerTurn) return false;
     setMoveFrom(null);
@@ -147,6 +182,8 @@ export function ChessBoardArea({
       styles[badMoveSquare] = {
         backgroundColor: 'rgba(239, 68, 68, 0.5)',
         boxShadow: 'inset 0 0 12px rgba(185, 28, 28, 0.8)',
+        outline: '4px solid #450a0a',
+        outlineOffset: '-6px',
       };
     }
 
@@ -154,6 +191,8 @@ export function ChessBoardArea({
       styles[opponentThreatSquare] = {
         backgroundColor: 'rgba(59, 130, 246, 0.5)',
         boxShadow: 'inset 0 0 12px rgba(29, 78, 216, 0.8)',
+        outline: '4px dashed #dbeafe',
+        outlineOffset: '-6px',
       };
     }
 
@@ -161,6 +200,8 @@ export function ChessBoardArea({
       styles[hintSquare] = {
         backgroundColor: 'rgba(249, 115, 22, 0.55)',
         boxShadow: 'inset 0 0 0 3px rgba(234, 88, 12, 0.95)',
+        outline: '4px double #fff7ed',
+        outlineOffset: '-6px',
         borderRadius: '4px',
       };
     }
@@ -171,6 +212,12 @@ export function ChessBoardArea({
         borderRadius: '4px',
       };
     }
+
+    styles[keyboardSquare] = {
+      ...styles[keyboardSquare],
+      outline: '4px double #f8fafc',
+      outlineOffset: '-4px',
+    };
 
     // Illegal-move flash: briefly highlight the target square in orange-red
     if (illegalFlashSquare) {
@@ -183,7 +230,7 @@ export function ChessBoardArea({
     }
 
     return styles;
-  }, [moveFrom, fen, badMoveSquare, hintSquare, puzzleHintSquare, opponentThreatSquare, illegalFlashSquare]);
+  }, [moveFrom, fen, badMoveSquare, hintSquare, puzzleHintSquare, opponentThreatSquare, illegalFlashSquare, keyboardSquare]);
 
 
   // Use custom styles if provided, otherwise default to dark/light gray
@@ -198,7 +245,15 @@ export function ChessBoardArea({
 
   return (
     // Fill entire parent — no centering, no padding waste
-    <div className="relative w-full h-full">
+    <div
+      ref={boardRef}
+      className="relative w-full h-full focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-cyan-400"
+      role="grid"
+      tabIndex={0}
+      aria-label="Chessboard. Use arrow keys to move between squares, then Enter or Space to select and move a piece."
+      aria-activedescendant={`chess-square-${keyboardSquare}`}
+      onKeyDown={handleBoardKeyDown}
+    >
       <Chessboard
         position={fen}
         onPieceDrop={handlePieceDrop}

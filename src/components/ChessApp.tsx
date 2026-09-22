@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Chess } from 'chess.js';
-import { AlertCircle, X, RefreshCcw, LogIn, Palette, Flame } from 'lucide-react';
+import { AlertCircle, X, RefreshCcw, LogIn, Palette, Flame, Check, ChevronDown, Volume2, VolumeX } from 'lucide-react';
 import { ChessBoardArea } from './ChessBoardArea';
 import { CoachOverlay } from './CoachOverlay';
 import { MoveLog } from './MoveLog';
@@ -11,7 +11,7 @@ import { useSession, isAdultFromBirthYear } from '../utils/useSession';
 import { RoastAgeGateModal } from './RoastAgeGateModal';
 import { supabase } from '../utils/supabaseClient';
 import { roastForMove, RoastContext } from '../utils/roastContext';
-import { speakCoachMessage, dispatchSubtitle } from '../utils/soundEffects';
+import { speakCoachMessage, dispatchSubtitle, getCoachVolume, setCoachVolume, stopCoachAudio, prepareCoachVoice } from '../utils/soundEffects';
 import { PaymentOverlay } from './PaymentOverlay';
 import { TrialTimer } from './TrialTimer';
 import { ProfileDropdown } from './ProfileDropdown';
@@ -49,10 +49,10 @@ function Toast({ message, onClose }: ToastProps) {
   }, [onClose]);
 
   return (
-    <div className="fixed top-4 right-4 z-50 flex items-center gap-2 rounded border border-red-800 bg-red-950 px-4 py-3 text-red-200 shadow-lg animate-in fade-in slide-in-from-top-4">
+    <div role="alert" aria-live="assertive" className="fixed top-4 right-4 z-50 flex items-center gap-2 rounded border border-red-800 bg-red-950 px-4 py-3 text-red-200 shadow-lg animate-in fade-in slide-in-from-top-4">
       <AlertCircle size={18} className="shrink-0" />
       <span className="text-sm font-medium">{message}</span>
-      <button onClick={onClose} className="ml-2 rounded p-1 transition-colors hover:bg-red-900">
+      <button aria-label="Dismiss notification" onClick={onClose} className="ml-2 min-h-11 min-w-11 rounded p-1 transition-colors hover:bg-red-900">
         <X size={14} />
       </button>
     </div>
@@ -60,6 +60,7 @@ function Toast({ message, onClose }: ToastProps) {
 }
 
 export type GameMode = 'you_vs_robot' | 'puzzle_mode';
+type CoachMode = 'off' | 'normal' | 'professional' | 'roast';
 
 type MoveHistoryEntry = {
   san: string;
@@ -81,6 +82,7 @@ function App() {
   const [playerColor, setPlayerColor] = useState<'white' | 'black'>('white');
   const [learnerMode, setLearnerMode] = useState(true);
   const [coachVoiceEnabled, setCoachVoiceEnabled] = useState(true);
+  const [coachVolume, setCoachVolumeState] = useState(0.8);
   const [gameId, setGameId] = useState<string | null>(null);
   const [opponentRating, setOpponentRating] = useState(1500);
   const [fen, setFen] = useState(START_FEN);
@@ -107,6 +109,7 @@ function App() {
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isStatsOpen, setIsStatsOpen] = useState(false);
   const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
+  const [isCoachMenuOpen, setIsCoachMenuOpen] = useState(false);
   const [trialStarted, setTrialStarted] = useState(false);
   const [trialExpired, setTrialExpired] = useState(false);
   const [overlayVisible, setOverlayVisible] = useState(false);
@@ -133,52 +136,92 @@ function App() {
 
   const [showRoastGate, setShowRoastGate] = useState(false);
   const moveRoastContext = useRef<RoastContext | null>(null);
+  const coachMenuRef = useRef<HTMLDivElement>(null);
+  const previousFenRef = useRef(START_FEN);
+  const gameGenerationRef = useRef(0);
+  const followUpGenerationRef = useRef(0);
+  const lastSpokenMessageRef = useRef('');
+  const hasSpokenInitialGreeting = useRef(false);
   const roastConsentKey = session?.user?.id ? `chess_roast_mode_verified_18_${session.user.id}` : null;
   useEffect(() => {
     setIsRoastMode(false);
     setShowRoastGate(false);
     setCurrentRoastWarning('');
     dispatchSubtitle('');
-    window.speechSynthesis?.cancel();
+    stopCoachAudio();
     if (roastConsentKey && isAdultFromBirthYear(profile?.birth_year)) {
       try { setIsRoastMode(localStorage.getItem(roastConsentKey) === 'true'); } catch {}
     }
   }, [roastConsentKey, profile?.birth_year]);
 
-  const handleToggleRoastMode = () => {
-    if (isRoastMode) {
-      setIsRoastMode(false);
-      setCurrentRoastWarning('');
-      dispatchSubtitle('');
-      window.speechSynthesis?.cancel();
-      if (roastConsentKey) localStorage.removeItem(roastConsentKey);
-      return;
-    }
-    if (!session) {
-      setToastMessage('Sign in before enabling adult commentary.');
-      setShowPaywallModal(true);
-      return;
-    }
-    if (profile?.birth_year && !isAdultFromBirthYear(profile.birth_year)) {
-      setToastMessage('Roast Mode is restricted to adults aged 18 or older.');
-      return;
-    }
-    setShowRoastGate(true);
-  };
+  const coachMode: CoachMode = isRoastMode
+    ? 'roast'
+    : !coachVoiceEnabled
+      ? 'off'
+      : learnerMode
+        ? 'normal'
+        : 'professional';
 
-  const previousFenRef = useRef(START_FEN);
-  const lastSpokenMessageRef = useRef('');
-  const hasSpokenInitialGreeting = useRef(false);
+  const selectCoachMode = (mode: CoachMode) => {
+    setIsCoachMenuOpen(false);
+
+    if (mode === 'roast') {
+      if (isRoastMode) return;
+      if (!session) {
+        setToastMessage('Sign in before enabling adult commentary.');
+        setShowPaywallModal(true);
+        return;
+      }
+      if (profile?.birth_year && !isAdultFromBirthYear(profile.birth_year)) {
+        setToastMessage('Roast Mode is restricted to adults aged 18 or older.');
+        return;
+      }
+      setShowRoastGate(true);
+      return;
+    }
+
+    setIsRoastMode(false);
+    setCurrentRoastWarning('');
+    if (roastConsentKey) localStorage.removeItem(roastConsentKey);
+    localStorage.setItem('coach-mode', mode);
+    localStorage.setItem('coach-voice-enabled', String(mode !== 'off'));
+
+    if (mode === 'off') {
+      setCoachVoiceEnabled(false);
+      setLearnerMode(false);
+      setSquareSuggestions([]);
+      resetWarningState();
+      stopCoachAudio();
+      return;
+    }
+
+    setCoachVoiceEnabled(true);
+    setLearnerMode(mode === 'normal');
+    if (mode === 'professional') {
+      setSquareSuggestions([]);
+      resetWarningState();
+    }
+  };
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-
+    setCoachVolumeState(getCoachVolume());
+    const prepareTimer = window.setTimeout(() => prepareCoachVoice(), 500);
+    const savedMode = window.localStorage.getItem('coach-mode') as CoachMode | null;
     const savedPreference = window.localStorage.getItem('coach-voice-enabled');
-    if (savedPreference === 'false') {
+    if (savedMode === 'off' || savedPreference === 'false') {
       setCoachVoiceEnabled(false);
+      setLearnerMode(false);
+    } else if (savedMode === 'professional') {
+      setCoachVoiceEnabled(true);
+      setLearnerMode(false);
     } else {
       setCoachVoiceEnabled(true);
+      setLearnerMode(true);
     }
+    return () => {
+      window.clearTimeout(prepareTimer);
+    };
   }, []);
 
   useEffect(() => {
@@ -187,16 +230,46 @@ function App() {
       const customEvent = e as CustomEvent<{ text: string }>;
       setCoachSubtitleText(customEvent.detail.text);
     };
+    const handleAudioError = (e: Event) => {
+      const customEvent = e as CustomEvent<{ message: string }>;
+      setToastMessage(customEvent.detail.message);
+    };
     window.addEventListener('coach-subtitle', handleSubtitle);
+    window.addEventListener('coach-audio-error', handleAudioError);
     return () => {
       window.removeEventListener('coach-subtitle', handleSubtitle);
+      window.removeEventListener('coach-audio-error', handleAudioError);
+      stopCoachAudio();
     };
   }, []);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
     window.localStorage.setItem('coach-voice-enabled', String(coachVoiceEnabled));
-  }, [coachVoiceEnabled]);
+    if (!isRoastMode) {
+      window.localStorage.setItem('coach-mode', !coachVoiceEnabled ? 'off' : learnerMode ? 'normal' : 'professional');
+    }
+  }, [coachVoiceEnabled, learnerMode, isRoastMode]);
+
+  useEffect(() => {
+    if (!isCoachMenuOpen) return;
+
+    const closeOnOutsideClick = (event: PointerEvent) => {
+      if (!coachMenuRef.current?.contains(event.target as Node)) {
+        setIsCoachMenuOpen(false);
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setIsCoachMenuOpen(false);
+    };
+
+    document.addEventListener('pointerdown', closeOnOutsideClick);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsideClick);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [isCoachMenuOpen]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -224,9 +297,7 @@ function App() {
   }, [history, initialFen]);
 
   useEffect(() => {
-    if (!coachVoiceEnabled && typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-    }
+    if (!coachVoiceEnabled) stopCoachAudio();
   }, [coachVoiceEnabled]);
 
   // Use refs to avoid stale closures if react-chessboard memoizes the onPieceDrop callback
@@ -267,14 +338,17 @@ function App() {
 
   useEffect(() => {
     let cancelled = false;
+    const generation = ++gameGenerationRef.current;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
     const tryStart = async (attemptsLeft: number) => {
       setIsConnecting(true);
+      let willRetry = false;
       try {
         if (session && session.user && gameMode === 'you_vs_robot') {
           // Attempt to resume
           try {
             const res = await api.resumeGame(session.user.id);
-            if (!cancelled) {
+            if (!cancelled && generation === gameGenerationRef.current) {
               setGameId(res.game_id);
               setFen(res.fen);
               setInitialFen(START_FEN); // Could be extracted if we saved it, but START_FEN is fine
@@ -292,7 +366,7 @@ function App() {
 
         if (gameMode === 'puzzle_mode') {
           const res = await api.startPuzzle(puzzleLevel);
-          if (!cancelled) {
+          if (!cancelled && generation === gameGenerationRef.current) {
             setPuzzleSessionId(res.session_id);
             setFen(res.fen);
             setInitialFen(res.fen);
@@ -306,7 +380,7 @@ function App() {
           }
         } else {
           const res = await api.startNewGame(undefined, opponentRating, session?.user?.id);
-          if (!cancelled) {
+          if (!cancelled && generation === gameGenerationRef.current) {
             setGameId(res.game_id);
             setFen(res.fen);
             setInitialFen(res.fen);
@@ -322,22 +396,23 @@ function App() {
           }
         }
       } catch (err) {
-        if (!cancelled && attemptsLeft > 1) {
+        if (!cancelled && generation === gameGenerationRef.current && attemptsLeft > 1) {
           // Backend might still be warming up — retry after 2 s
-          setTimeout(() => { if (!cancelled) void tryStart(attemptsLeft - 1); }, 2000);
+          willRetry = true;
+          retryTimer = setTimeout(() => { if (!cancelled && generation === gameGenerationRef.current) void tryStart(attemptsLeft - 1); }, 2000);
           return;
         }
-        if (!cancelled) {
+        if (!cancelled && generation === gameGenerationRef.current) {
           setToastMessage('Coach is unreachable — check the backend is running');
         }
       } finally {
-        if (!cancelled) setIsConnecting(false);
+        if (!cancelled && generation === gameGenerationRef.current && !willRetry) setIsConnecting(false);
       }
     };
     if (!sessionLoading) {
       void tryStart(3);
     }
-    return () => { cancelled = true; };
+    return () => { cancelled = true; if (retryTimer) clearTimeout(retryTimer); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionLoading, session]);
 
@@ -356,7 +431,7 @@ function App() {
       if (shouldRobotMove) {
         const timer = setTimeout(() => {
           void playRobotMove();
-        }, 400);
+        }, 150);
 
         return () => clearTimeout(timer);
       }
@@ -375,6 +450,9 @@ function App() {
   };
 
   const startNewGame = async (overrideMode?: GameMode) => {
+    const generation = ++gameGenerationRef.current;
+    followUpGenerationRef.current += 1;
+    stopCoachAudio();
     try {
       setIsThinking(false);
       setSquareSuggestions([]);
@@ -386,6 +464,7 @@ function App() {
 
       if (activeMode === 'puzzle_mode') {
         const res = await api.startPuzzle(puzzleLevel);
+        if (generation !== gameGenerationRef.current) return;
         setPuzzleSessionId(res.session_id);
         setFen(res.fen);
         setPlayerColor(res.side_to_move as 'white' | 'black');
@@ -397,6 +476,7 @@ function App() {
         speakPuzzleStartAnnouncement(res.side_to_move, coachVoiceEnabled);
       } else {
         const res = await api.startNewGame(undefined, opponentRating, session?.user?.id);
+        if (generation !== gameGenerationRef.current) return;
         setGameId(res.game_id);
         setFen(res.fen);
         setHistory([]);
@@ -407,11 +487,12 @@ function App() {
         speakRatingAnnouncement(opponentRating, ratingTier(opponentRating), coachVoiceEnabled);
       }
     } catch (err) {
-      handleError(err);
+      if (generation === gameGenerationRef.current) handleError(err);
     }
   };
 
   const resetWarningState = () => {
+    followUpGenerationRef.current += 1;
     setOverlayVisible(false);
     setWarningActive(false);
     setPendingMoveUci(null);
@@ -455,21 +536,6 @@ function App() {
     }
   };
 
-  const refreshGameState = useCallback(async (id: string) => {
-    try {
-      const state = await api.getGameState(id);
-      setFen(state.fen);
-      setHistory(state.move_history);
-      if (state.is_game_over) {
-        setCoachMessage(`Game over! ${state.result || ''}`);
-      }
-    } catch (err) {
-      // Don't call handleError here — a transient state-fetch failure
-      // should not restart the game or show a disruptive toast.
-      console.warn('refreshGameState failed (non-fatal):', err);
-    }
-  }, []);
-
   const handleInteractionAttempt = () => {
     if (!session) {
       if (trialExpired) {
@@ -505,13 +571,12 @@ function App() {
 
     if (!move) return false;
 
-    playMoveSoundForUci(fen, move.from + move.to + (move.promotion || ''));
-
     const moveUci = move.from + move.to + (move.promotion || '');
     const nextFen = chess.fen();
 
     if (gameMode === 'puzzle_mode' && puzzleSessionId) {
        void (async () => {
+         const operationGeneration = gameGenerationRef.current;
          try {
            setIsThinking(true);
            setOverlayVisible(false);
@@ -519,10 +584,12 @@ function App() {
            setPuzzleHintSquare(null);
 
            const res = await api.attemptPuzzle(puzzleSessionId, moveUci);
+           if (operationGeneration !== gameGenerationRef.current) return;
            if (!res.correct) {
               setToastMessage('Incorrect move. Try again!');
            } else {
               setFen(nextFen); 
+              playMoveSoundForUci(fen, moveUci);
               previousFenRef.current = nextFen;
               
               // Add player move to history
@@ -530,6 +597,7 @@ function App() {
               
               if (res.opponent_reply_uci) {
                  setTimeout(() => {
+                    if (operationGeneration !== gameGenerationRef.current) return;
                     const opponentChess = new Chess(nextFen);
                     const oppMove = opponentChess.move(res.opponent_reply_uci);
                     
@@ -545,21 +613,19 @@ function App() {
               } else if (res.solved) {
                  setToastMessage('🎉 Puzzle Solved!');
                  speakGameWon(coachVoiceEnabled);
-                 setTimeout(() => {
-                   void startNewGame();
-                 }, 2000);
               }
            }
          } catch (err) {
-           handleError(err);
+           if (operationGeneration === gameGenerationRef.current) handleError(err);
          } finally {
-           setIsThinking(false);
+           if (operationGeneration === gameGenerationRef.current) setIsThinking(false);
          }
        })();
        return true;
     }
 
     void (async () => {
+      const operationGeneration = gameGenerationRef.current;
       try {
         setOverlayVisible(false);
         setWarningActive(false);
@@ -569,6 +635,7 @@ function App() {
         setFollowUpArrows([]);
 
         const preRes = await api.precheckMove(gameId!, moveUci);
+        if (operationGeneration !== gameGenerationRef.current) return;
 
         moveRoastContext.current = {
           fen, move: moveUci, label: preRes.label,
@@ -609,12 +676,8 @@ function App() {
           }
           setBadMoveSquare(move.to);
           setWarningActive(true);
-          
-          // Delay the overlay to let the player think
-          setTimeout(() => {
-            setOverlayVisible(true);
-            setIsThinking(false);
-          }, 4000);
+          setOverlayVisible(true);
+          setIsThinking(false);
           return;
         }
 
@@ -624,6 +687,7 @@ function App() {
         // This prevents the robot from firing before the player's move is committed.
         await commitAndFinalize(moveUci);
       } catch (error) {
+        if (operationGeneration !== gameGenerationRef.current) return;
         console.error('Error in handleMoveAttempt:', error);
         setIsThinking(false);
         setOverlayVisible(false);
@@ -637,20 +701,19 @@ function App() {
 
   const handleCommitWarning = async () => {
     if (pendingMoveUci && gameId) {
+      const operationGeneration = gameGenerationRef.current;
       setIsThinking(true);
       const moveUci = pendingMoveUci;
       const targetFen = pendingFen;
-      const preMovefen = previousFenRef.current || fen;
       resetWarningState();
       try {
         // Play sound now with the original pre-move fen (before setFen updates state)
-        playMoveSoundForUci(preMovefen, moveUci);
         if (targetFen) setFen(targetFen);
         await commitAndFinalize(moveUci, !isRoastMode);
       } catch (err) {
-        handleError(err);
+        if (operationGeneration === gameGenerationRef.current) handleError(err);
       } finally {
-        setIsThinking(false);
+        if (operationGeneration === gameGenerationRef.current) setIsThinking(false);
       }
     }
   };
@@ -671,12 +734,17 @@ function App() {
 
   const commitAndFinalize = async (moveUci: string, skipVoice: boolean = false) => {
     if (!gameId) return;
+    const operationGeneration = gameGenerationRef.current;
+    const activeGameId = gameId;
 
     try {
-      const commitRes = await api.commitMove(gameId, moveUci);
+      const commitRes = await api.commitMove(activeGameId, moveUci);
+      if (operationGeneration !== gameGenerationRef.current) return;
+      const fenBeforeMove = previousFenRef.current;
+      playMoveSoundForUci(fenBeforeMove, moveUci);
       setFen(commitRes.fen);
       previousFenRef.current = commitRes.fen;
-      await refreshGameState(gameId);
+      setHistory((current) => [...current, { san: commitRes.san, classification: commitRes.classification, fen_before: fenBeforeMove }]);
 
       const label = commitRes.classification || 'Move';
       const labelMap: Record<string, string> = {
@@ -736,21 +804,25 @@ function App() {
         setOverlayVisible(true);
       }
     } catch (err) {
-      handleError(err);
+      if (operationGeneration === gameGenerationRef.current) handleError(err);
     } finally {
-      setIsThinking(false);
+      if (operationGeneration === gameGenerationRef.current) setIsThinking(false);
     }
   };
 
   const executeCommit = useCallback(async (moveUci: string, preMovefen?: string) => {
     if (!gameId) return;
+    const operationGeneration = gameGenerationRef.current;
+    const activeGameId = gameId;
 
     try {
-      playMoveSoundForUci(preMovefen ?? fen, moveUci);
-      const commitRes = await api.commitMove(gameId, moveUci);
+      const commitRes = await api.commitMove(activeGameId, moveUci);
+      if (operationGeneration !== gameGenerationRef.current) return;
+      const fenBeforeMove = preMovefen ?? fen;
+      playMoveSoundForUci(fenBeforeMove, moveUci);
       setFen(commitRes.fen);
       previousFenRef.current = commitRes.fen;
-      await refreshGameState(gameId);
+      setHistory((current) => [...current, { san: commitRes.san, classification: commitRes.classification, fen_before: fenBeforeMove }]);
       resetWarningState();
 
       if (commitRes.is_game_over) {
@@ -780,28 +852,29 @@ function App() {
         setOverlayVisible(true);
       }
     } catch (err) {
-      handleError(err);
+      if (operationGeneration === gameGenerationRef.current) handleError(err);
     }
-  }, [gameId, fen, refreshGameState, isRoastMode, playerColor, coachVoiceEnabled]);
+  }, [gameId, fen, isRoastMode, playerColor, coachVoiceEnabled]);
 
   const playRobotMove = useCallback(async () => {
     if (!gameId) return;
+    const operationGeneration = gameGenerationRef.current;
 
     setIsRobotThinking(true);
     try {
       const currentFen = fen;
       const res = await api.getRobotMove(gameId);
+      if (operationGeneration !== gameGenerationRef.current) return;
       if (res.moves && res.moves.length > 0) {
         const moveUci = res.moves[0].move;
         if (moveUci) {
-          await new Promise((resolve) => setTimeout(resolve, 900));
           await executeCommit(moveUci, currentFen);
         }
       }
     } catch (err) {
       handleError(err);
     } finally {
-      setIsRobotThinking(false);
+      if (operationGeneration === gameGenerationRef.current) setIsRobotThinking(false);
     }
   }, [executeCommit, gameId, fen]);
 
@@ -825,6 +898,9 @@ function App() {
 
   const handleShowFollowUp = async () => {
     if (!pendingMoveUci || refutationSequence.length === 0) return;
+    const followUpGeneration = ++followUpGenerationRef.current;
+    const gameGeneration = gameGenerationRef.current;
+    const isCurrent = () => followUpGeneration === followUpGenerationRef.current && gameGeneration === gameGenerationRef.current;
 
     // Start with the position before the bad move
     const chess = new Chess(previousFenRef.current);
@@ -845,6 +921,7 @@ function App() {
     const sequence = refutationSequence.slice(0, 3);
     for (let i = 0; i < sequence.length; i++) {
       await new Promise((resolve) => setTimeout(resolve, 2000));
+      if (!isCurrent()) return;
       try {
         const uci = sequence[i];
         const moveFen = chess.fen();
@@ -865,6 +942,7 @@ function App() {
 
     // Wait a bit, then snap back
     await new Promise((resolve) => setTimeout(resolve, 3000));
+    if (!isCurrent()) return;
     setFen(previousFenRef.current);
     setBadMoveSquare(null);
     setOpponentThreatSquare(null);
@@ -980,17 +1058,18 @@ function App() {
     >
       {toastMessage && <Toast message={toastMessage} onClose={() => setToastMessage(null)} />}
 
-      <div className="flex h-11 lg:h-14 items-center justify-between border-b border-zinc-800 bg-[#111] px-2 lg:px-4 py-2 shrink-0 overflow-x-auto no-scrollbar">
-        <div className="flex items-center gap-2 lg:gap-3 shrink-0 ml-4">
+      <div className="flex min-h-14 flex-wrap items-center justify-between gap-2 border-b border-zinc-800 bg-[#111] px-2 py-2 shrink-0 lg:h-14 lg:flex-nowrap lg:px-4">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 lg:flex-nowrap lg:gap-3 lg:ml-4">
           <div className="flex items-center gap-2">
             <select
+              aria-label="Game mode"
               value={gameMode}
               onChange={(e) => {
                 const newMode = e.target.value as GameMode;
                 setGameMode(newMode);
                 void startNewGame(newMode);
               }}
-              className="cursor-pointer bg-transparent text-sm font-bold text-zinc-100 outline-none"
+              className="min-h-11 cursor-pointer bg-transparent text-sm font-bold text-zinc-100 outline-none lg:min-h-0"
               style={{ appearance: 'auto' }}
             >
               <option value="you_vs_robot" className="bg-zinc-900">You Vs Robot</option>
@@ -1009,7 +1088,7 @@ function App() {
                     void startNewGame();
                   }, 0);
                 }}
-                className="flex items-center gap-1.5 px-2 py-1 rounded bg-zinc-800/50 hover:bg-zinc-700/50 text-white font-medium transition-colors"
+                className="flex min-h-11 items-center gap-1.5 px-2 py-1 rounded bg-zinc-800/50 hover:bg-zinc-700/50 text-white font-medium transition-colors lg:min-h-0"
                 title="Click to toggle side"
               >
                 <div 
@@ -1023,7 +1102,7 @@ function App() {
 
           <button
             onClick={() => void startNewGame()}
-            className="flex items-center gap-1.5 text-sm text-zinc-400 transition-colors hover:text-zinc-200"
+            className="flex min-h-11 items-center gap-1.5 text-sm text-zinc-400 transition-colors hover:text-zinc-200 lg:min-h-0"
           >
             <RefreshCcw size={13} />
             Restart Game
@@ -1035,6 +1114,7 @@ function App() {
                 Level: <strong className="text-emerald-400">{puzzleLevel}</strong>
               </span>
               <input
+                aria-label={`Puzzle difficulty level ${puzzleLevel}`}
                 type="range"
                 min={1}
                 max={5}
@@ -1043,7 +1123,7 @@ function App() {
                 onChange={(e) => setPuzzleLevel(Number(e.target.value))}
                 onMouseUp={() => void startNewGame()}
                 onTouchEnd={() => void startNewGame()}
-                className="w-24 cursor-pointer accent-emerald-500"
+                className="min-h-11 w-24 cursor-pointer accent-emerald-500 lg:min-h-0"
               />
               <span className="text-xs font-medium text-zinc-500 ml-1">Playing as {playerColor}</span>
             </div>
@@ -1053,6 +1133,7 @@ function App() {
                 Rating: <strong className="text-emerald-400">{opponentRating}</strong> ({ratingTier(opponentRating)})
               </span>
               <input
+                aria-label={`Opponent rating ${opponentRating}`}
                 type="range"
                 min={1320}
                 max={3190}
@@ -1061,70 +1142,117 @@ function App() {
                 onChange={(e) => setOpponentRating(Number(e.target.value))}
                 onMouseUp={() => void startNewGame()}
                 onTouchEnd={() => void startNewGame()}
-                className="w-24 cursor-pointer accent-emerald-500"
+                className="min-h-11 w-24 cursor-pointer accent-emerald-500 lg:min-h-0"
               />
             </div>
           )}
         </div>
 
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => {
-              if (!('speechSynthesis' in window)) {
-                setToastMessage('Coach voice is not supported in this browser.');
-                return;
-              }
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <div ref={coachMenuRef} className="relative shrink-0">
+            <button
+              type="button"
+              onClick={() => setIsCoachMenuOpen((open) => !open)}
+              aria-haspopup="menu"
+              aria-expanded={isCoachMenuOpen}
+              aria-controls="coach-mode-menu"
+              className={`flex min-h-11 items-center gap-2 rounded-full border px-3 text-xs font-semibold whitespace-nowrap transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 ${
+                coachMode === 'roast'
+                  ? 'border-red-700 bg-red-950/80 text-red-200 hover:bg-red-900/80'
+                  : coachMode === 'off'
+                    ? 'border-zinc-700 bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200'
+                    : 'border-cyan-700/70 bg-cyan-950/70 text-cyan-200 hover:bg-cyan-900/70'
+              }`}
+            >
+              {coachMode === 'off' ? (
+                <VolumeX size={15} aria-hidden="true" />
+              ) : coachMode === 'roast' ? (
+                <Flame size={15} className="text-red-400" aria-hidden="true" />
+              ) : (
+                <Volume2 size={15} aria-hidden="true" />
+              )}
+              <span>Coach {coachMode === 'off' ? 'OFF' : 'ON'}</span>
+              {coachMode !== 'off' && (
+                <span className="text-[10px] font-medium text-current opacity-70">
+                  · {coachMode === 'professional' ? 'Professional' : coachMode === 'roast' ? 'Roast' : 'Normal'}
+                </span>
+              )}
+              <ChevronDown
+                size={14}
+                className={`opacity-70 transition-transform ${isCoachMenuOpen ? 'rotate-180' : ''}`}
+                aria-hidden="true"
+              />
+            </button>
 
-              const nextEnabled = !coachVoiceEnabled;
-              setCoachVoiceEnabled(nextEnabled);
-
-              if (!nextEnabled) {
-                window.speechSynthesis.cancel();
-                lastSpokenMessageRef.current = '';
-              }
-            }}
-            className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold whitespace-nowrap shrink-0 transition-all ${
-              coachVoiceEnabled
-                ? 'border-cyan-700/60 bg-cyan-900/50 text-cyan-300'
-                : 'border-zinc-700 bg-zinc-800 text-zinc-400'
-            }`}
-          >
-            <span className={`h-2 w-2 rounded-full ${coachVoiceEnabled ? 'bg-cyan-400' : 'bg-zinc-600'}`} />
-            Coach Voice: {coachVoiceEnabled ? 'ON' : 'OFF'}
-          </button>
-
-          <button
-            onClick={() => {
-              setLearnerMode(!learnerMode);
-              if (learnerMode) setSquareSuggestions([]);
-            }}
-            className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold whitespace-nowrap shrink-0 transition-all ${
-              learnerMode
-                ? 'border-emerald-700/60 bg-emerald-900/50 text-emerald-300'
-                : 'border-zinc-700 bg-zinc-800 text-zinc-500'
-            }`}
-          >
-            <span className={`h-2 w-2 rounded-full ${learnerMode ? 'bg-emerald-400' : 'bg-zinc-600'}`} />
-            Learner Mode: {learnerMode ? 'ON' : 'OFF'}
-          </button>
-
-          <button
-            onClick={handleToggleRoastMode}
-            className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold whitespace-nowrap shrink-0 transition-all ${
-              isRoastMode
-                ? 'border-red-600/80 bg-red-950/70 text-red-200 shadow-md shadow-red-950/40 hover:bg-red-900/80'
-                : 'border-zinc-700 bg-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700'
-            }`}
-            title="Uncensored 18+ savage commentary (Birth Year verified)"
-          >
-            <Flame size={13} className={isRoastMode ? 'text-red-400 animate-pulse' : 'text-zinc-500'} />
-            Roast Mode (18+): {isRoastMode ? 'ON' : 'OFF'}
-          </button>
+            {isCoachMenuOpen && (
+              <div
+                id="coach-mode-menu"
+                role="menu"
+                aria-label="Choose coach mode"
+                className="fixed left-2 right-2 top-20 z-[100] max-h-[calc(100vh-6rem)] overflow-y-auto rounded-xl bg-zinc-950 p-2 shadow-2xl ring-1 ring-zinc-700 lg:absolute lg:left-auto lg:right-0 lg:top-full lg:mt-2 lg:w-72"
+              >
+                <p className="px-3 pb-2 pt-1 text-[11px] font-bold uppercase tracking-wider text-zinc-500">
+                  Coach mode
+                </p>
+                {([
+                  ['normal', 'Normal', 'Guided feedback with instant mistake warnings.'],
+                  ['professional', 'Professional', 'Voice feedback without interrupting your moves.'],
+                  ['roast', 'Roast · 18+', 'Unfiltered commentary with guided warnings.'],
+                  ['off', 'Off', 'Disable coach voice and move warnings.'],
+                ] as const).map(([mode, label, description]) => {
+                  const selected = coachMode === mode;
+                  return (
+                    <button
+                      key={mode}
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={selected}
+                      onClick={() => selectCoachMode(mode)}
+                      className={`flex w-full items-start gap-3 rounded-lg px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cyan-400 ${
+                        selected ? 'bg-zinc-800 text-white' : 'text-zinc-300 hover:bg-zinc-900'
+                      }`}
+                    >
+                      <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${
+                        selected ? 'bg-cyan-500 text-zinc-950' : 'bg-zinc-800 text-transparent'
+                      }`}>
+                        <Check size={13} aria-hidden="true" />
+                      </span>
+                      <span>
+                        <span className="block text-sm font-semibold">{label}</span>
+                        <span className="mt-0.5 block text-xs leading-4 text-zinc-500">{description}</span>
+                      </span>
+                    </button>
+                  );
+                })}
+                <div className="mt-2 border-t border-zinc-800 px-3 pb-2 pt-3">
+                  <div className="mb-2 flex items-center justify-between text-xs text-zinc-400">
+                    <label htmlFor="coach-volume">Coach volume</label>
+                    <span>{Math.round(coachVolume * 100)}%</span>
+                  </div>
+                  <input
+                    id="coach-volume"
+                    aria-label={`Coach volume ${Math.round(coachVolume * 100)} percent`}
+                    type="range"
+                    min="0.1"
+                    max="1"
+                    step="0.1"
+                    value={coachVolume}
+                    onChange={(event) => {
+                      const value = Number(event.target.value);
+                      setCoachVolumeState(value);
+                      setCoachVolume(value);
+                    }}
+                    className="min-h-11 w-full cursor-pointer accent-cyan-500"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
 
           {gameMode === 'you_vs_robot' && (
             <button
               onClick={() => void handleUndoBadMove()}
-              className="flex items-center gap-1.5 rounded-full border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-xs font-semibold text-zinc-200 whitespace-nowrap shrink-0 transition-all hover:bg-zinc-700"
+              className="flex min-h-11 items-center gap-1.5 rounded-full border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-xs font-semibold text-zinc-200 whitespace-nowrap shrink-0 transition-all hover:bg-zinc-700"
             >
               <RefreshCcw size={12} />
               Undo Move
@@ -1134,8 +1262,9 @@ function App() {
           {session ? (
             <div className="relative flex items-center gap-2">
               <button
+                aria-label="Open profile menu"
                 onClick={() => setIsProfileOpen(!isProfileOpen)}
-                className="flex items-center justify-center w-8 h-8 rounded-full border-2 border-emerald-500 overflow-hidden shadow-md hover:scale-105 transition-transform shrink-0"
+                className="flex min-h-11 min-w-11 items-center justify-center rounded-full border-2 border-emerald-500 overflow-hidden shadow-md hover:scale-105 transition-transform shrink-0"
               >
                 <AvatarImg 
                   avatarUrl={profile?.avatar_url || session?.user?.user_metadata?.avatar_url}
@@ -1180,7 +1309,7 @@ function App() {
           ) : (
             <button
               onClick={() => setShowPaywallModal(true)}
-              className="flex items-center gap-1.5 rounded-full border border-emerald-600 bg-emerald-600/20 px-4 py-1.5 text-xs font-semibold text-emerald-400 whitespace-nowrap shrink-0 transition-all hover:bg-emerald-600 hover:text-white"
+              className="flex min-h-11 items-center gap-1.5 rounded-full border border-emerald-600 bg-emerald-600/20 px-4 py-1.5 text-xs font-semibold text-emerald-400 whitespace-nowrap shrink-0 transition-all hover:bg-emerald-600 hover:text-white"
             >
               <LogIn size={14} />
               Login / Sign Up
@@ -1197,6 +1326,8 @@ function App() {
               {/* Backend connection overlay — shown when game hasn't started yet */}
               {(!gameId && !puzzleSessionId) && (
                 <div
+                  role="status"
+                  aria-live="polite"
                   className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-4 rounded"
                   style={{ background: 'rgba(0,0,0,0.82)', backdropFilter: 'blur(4px)' }}
                 >
@@ -1274,6 +1405,7 @@ function App() {
                 customDarkSquareStyle={{ backgroundColor: BOARD_THEMES.find(t => t.id === boardThemeId)?.dark }}
               />
               <button
+                aria-label="Change board theme"
                 onClick={() => setIsThemeModalOpen(true)}
                 className="absolute -left-12 bottom-0 p-2 rounded-full bg-zinc-800/80 border border-zinc-700 hover:bg-zinc-700 text-zinc-300 hover:text-emerald-400 shadow-lg transition-all z-40 items-center justify-center hidden lg:flex"
                 title="Change Board Theme"
@@ -1284,8 +1416,8 @@ function App() {
           </div>
 
           <div
-            className="flex flex-shrink-0 flex-col overflow-hidden rounded-lg border border-zinc-800/60 shadow-2xl relative w-full lg:w-[400px] lg:h-[min(calc(100vh-60px),calc(100vw-420px))]"
-            style={{ minHeight: '300px', background: '#0f0f12' }}
+            className="relative flex min-h-0 w-full flex-shrink-0 flex-col overflow-hidden rounded-lg border border-zinc-800/60 shadow-2xl lg:min-h-[300px] lg:w-[400px] lg:h-[min(calc(100vh-60px),calc(100vw-420px))]"
+            style={{ background: '#0f0f12' }}
           >
             <TrialTimer 
               isActive={!session && trialStarted} 
@@ -1320,8 +1452,8 @@ function App() {
               </div>
             ) : (
               <>
-                {(!coachVoiceEnabled && coachSubtitleText) && (
-                  <div className="p-4 animate-in slide-in-from-top-2 fade-in shrink-0 z-10">
+                {coachSubtitleText && (
+                  <div role="status" aria-live="polite" className="p-4 animate-in slide-in-from-top-2 fade-in shrink-0 z-10">
                     <div className="rounded-xl border border-cyan-800/50 bg-cyan-950/90 p-3 shadow-lg backdrop-blur-sm">
                       <p className="text-xs font-bold uppercase tracking-wider text-cyan-400 mb-1">
                         Coach Says:
@@ -1348,7 +1480,11 @@ function App() {
           const { error } = await supabase.auth.updateUser({ data: { birth_year: year } });
           if (error) throw error;
           localStorage.setItem(roastConsentKey, 'true');
+          localStorage.setItem('coach-mode', 'roast');
+          localStorage.setItem('coach-voice-enabled', 'true');
           mergeProfile({ birth_year: year });
+          setCoachVoiceEnabled(true);
+          setLearnerMode(true);
           setIsRoastMode(true);
           setShowRoastGate(false);
         }}
@@ -1369,6 +1505,7 @@ function App() {
           ) : (
             <div className="w-full max-w-md relative">
               <button 
+                aria-label="Close account dialog"
                 onClick={() => {
                   logout();
                   setNewRegisteredUserId(null);

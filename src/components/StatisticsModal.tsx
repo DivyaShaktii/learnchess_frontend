@@ -66,8 +66,9 @@ export function StatisticsModal({ isOpen, onClose, userId, currentRating }: Stat
       <div className="w-full max-w-3xl rounded-2xl border border-zinc-800 bg-[#111] shadow-2xl relative flex flex-col max-h-[90vh]">
         
         <button 
+          aria-label="Close statistics"
           onClick={onClose}
-          className="absolute right-4 top-4 z-10 text-zinc-500 hover:text-white transition-colors"
+          className="absolute right-4 top-4 z-10 flex min-h-11 min-w-11 items-center justify-center text-zinc-500 hover:text-white transition-colors"
         >
           <X className="h-6 w-6" />
         </button>

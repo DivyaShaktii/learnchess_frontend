@@ -102,8 +102,9 @@ export const ProfileDropdown: React.FC<ProfileDropdownProps> = ({
       >
         {/* Close Button */}
         <button
+          aria-label="Close profile"
           onClick={onClose}
-          className="absolute right-4 top-4 z-10 p-2 rounded-full text-zinc-400 hover:text-white hover:bg-zinc-800/60 transition-colors"
+          className="absolute right-4 top-4 z-10 flex min-h-11 min-w-11 items-center justify-center rounded-full text-zinc-400 hover:text-white hover:bg-zinc-800/60 transition-colors"
           title="Close Profile"
         >
           <X className="h-5 w-5" />

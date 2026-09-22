@@ -190,7 +190,7 @@ export function ProfileEditModal({ isOpen, onClose, session, profile, onSaved }:
             <User className="w-5 h-5 text-emerald-400" />
             <h2 className="text-base font-bold">Edit Profile</h2>
           </div>
-          <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300 transition-colors"><X size={20} /></button>
+          <button aria-label="Close profile editor" onClick={onClose} className="flex min-h-11 min-w-11 items-center justify-center text-zinc-500 hover:text-zinc-300 transition-colors"><X size={20} /></button>
         </div>
 
         <div className="p-5 flex flex-col gap-5">

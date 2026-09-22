@@ -34,8 +34,9 @@ export function BoardThemeSelector({ isOpen, onClose, selectedThemeId, onSelectT
             <h2 className="text-lg font-bold text-zinc-100">Board Theme</h2>
           </div>
           <button
+            aria-label="Close board theme selector"
             onClick={onClose}
-            className="text-zinc-500 hover:text-zinc-300 transition-colors p-1"
+            className="flex min-h-11 min-w-11 items-center justify-center text-zinc-500 hover:text-zinc-300 transition-colors"
           >
             <X size={20} />
           </button>

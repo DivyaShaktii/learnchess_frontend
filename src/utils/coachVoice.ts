@@ -1,68 +1,34 @@
 // Audio playback layer for move classification feedback
-import { dispatchSubtitle, clearSubtitleAfter, speakCoachMessage } from './soundEffects';
+import { speakCoachMessage } from './soundEffects';
 import { Chess } from 'chess.js';
 import { getRandomRoast, getRoastCategoryForMove, RoastCategoryKey } from '../data/roastDialogues';
 
-const BASE_PATH = "/Chess_Project_Voices";
-
-const AUDIO_FILES: Record<string, string> = {
-  Book: `${BASE_PATH}/Book.mp3`,
-  Best: `${BASE_PATH}/Good move.mp3`,
-  'Best Move': `${BASE_PATH}/Good move.mp3`,
-  Brilliant: `${BASE_PATH}/Good move.mp3`,
-  Excellent: `${BASE_PATH}/Excellent move.mp3`,
-  Good: `${BASE_PATH}/Good move.mp3`,
-  Inaccuracy: `${BASE_PATH}/That's a slight inaccuracy.mp3`,
-  Mistake: `${BASE_PATH}/Hold on, that's a mistake. Don't rush take a moment to rethink your strategy and try to find a better move.mp3`,
-  Blunder: `${BASE_PATH}/That's a blunder..mp3`,
-  'Worst Move': `${BASE_PATH}/That's a serious blunder..mp3`,
-  Worst: `${BASE_PATH}/That's a serious blunder..mp3`,
+const CATEGORY_MESSAGES: Record<string, string> = {
+  Book: 'Book move.',
+  Best: 'Best move.',
+  'Best Move': 'Best move.',
+  Brilliant: 'Brilliant move!',
+  Excellent: 'Excellent move.',
+  Great: 'Great move.',
+  Good: 'Good move.',
+  Inaccuracy: 'That is a slight inaccuracy.',
+  Mistake: 'Hold on, that is a mistake. Take a moment to find a better move.',
+  Blunder: 'That is a blunder.',
+  'Worst Move': 'That is a serious blunder.',
+  Worst: 'That is a serious blunder.',
 };
 
 export function speakMoveCategory(label: string, playAudio: boolean = true, fallbackText?: string): void {
   if (typeof window === 'undefined') return;
 
-  if ((label === "Opening Principle" || label === "Opening Pawn Warning") && fallbackText) {
-    speakCoachMessage(fallbackText, undefined, playAudio);
-    return;
-  }
-
-  const audioPath = AUDIO_FILES[label];
-  if (audioPath) {
-    try {
-      const cleanText = audioPath.replace(BASE_PATH + '/', '').replace('.mp3', '');
-      dispatchSubtitle(cleanText);
-
-      if (playAudio) {
-        const audio = new Audio(audioPath);
-        audio.volume = 1.0;
-        audio.onended = () => clearSubtitleAfter(2000);
-        audio.play().catch(e => console.warn("Audio play failed:", e));
-      } else {
-        clearSubtitleAfter(5000);
-      }
-    } catch (e) {
-      console.warn("Failed to play audio", e);
-    }
-  }
+  const text = fallbackText || CATEGORY_MESSAGES[label] || `${label} move.`;
+  speakCoachMessage(text, undefined, playAudio);
 }
 
 export function speakRefutationWarning(playAudio: boolean = true): void {
   if (typeof window === 'undefined') return;
 
-  try {
-    dispatchSubtitle("Watch out! Here is their plan.");
-    if (playAudio) {
-      const audio = new Audio(`${BASE_PATH}/Watch out! Here is their plan..mp3`);
-      audio.volume = 1.0;
-      audio.onended = () => clearSubtitleAfter(2000);
-      audio.play().catch(e => console.warn("Audio play failed:", e));
-    } else {
-      clearSubtitleAfter(5000);
-    }
-  } catch (e) {
-    console.warn("Failed to play audio", e);
-  }
+  speakCoachMessage('Watch out! Here is their plan.', undefined, playAudio);
 }
 
 export function speakRatingAnnouncement(rating: number, tier: string, playAudio: boolean = true): void {
@@ -78,19 +44,7 @@ export function speakPuzzleStartAnnouncement(color: string, playAudio: boolean =
 export function speakGameWon(playAudio: boolean = true): void {
   if (typeof window === 'undefined') return;
 
-  try {
-    dispatchSubtitle("You win!");
-    if (playAudio) {
-      const audio = new Audio(`${BASE_PATH}/win.mp3`);
-      audio.volume = 1.0;
-      audio.onended = () => clearSubtitleAfter(2000);
-      audio.play().catch(e => console.warn("Audio play failed:", e));
-    } else {
-      clearSubtitleAfter(5000);
-    }
-  } catch (e) {
-    console.warn("Failed to play audio", e);
-  }
+  speakCoachMessage('You win!', undefined, playAudio);
 }
 
 export function speakDynamicRefutation(refutationSequence: string[], currentFen: string, playAudio: boolean = true): void {

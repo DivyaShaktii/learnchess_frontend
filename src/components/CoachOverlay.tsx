@@ -47,8 +47,10 @@ export function CoachOverlay({
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const dragStartPos = useRef({ x: 0, y: 0 });
+  const panelRef = useRef<HTMLDivElement>(null);
 
   const handlePointerDown = (e: React.PointerEvent) => {
+    if ((e.target as HTMLElement).closest('button')) return;
     setIsDragging(true);
     dragStartPos.current = {
       x: e.clientX - position.x,
@@ -87,6 +89,20 @@ export function CoachOverlay({
     }
   }, [visible, autoDismissSeconds, isBadMove, onDismissWarning, onCloseOverlay]);
 
+  useEffect(() => {
+    if (!visible) return;
+    const previousFocus = document.activeElement as HTMLElement | null;
+    panelRef.current?.querySelector<HTMLButtonElement>('button')?.focus();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onDismissWarning();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      previousFocus?.focus();
+    };
+  }, [visible, onDismissWarning]);
+
   const handlePlayAnyway = useCallback(() => {
     onCommitWarning();
   }, [onCommitWarning]);
@@ -103,6 +119,10 @@ export function CoachOverlay({
       style={{ top: '20%' }}
     >
       <div
+        ref={panelRef}
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="coach-warning-title"
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
@@ -119,6 +139,9 @@ export function CoachOverlay({
           animation: 'slideDown 0.25s ease',
         }}
       >
+        <h2 id="coach-warning-title" className="sr-only">
+          {classification || 'Coach'} move warning
+        </h2>
         <style>{`
           @keyframes slideDown {
             from { opacity: 0; transform: translateY(-10px); }
@@ -143,7 +166,7 @@ export function CoachOverlay({
           {isRoastMode && <button onClick={handleDismiss} className="min-h-11 rounded-lg border border-zinc-600 px-4 py-2 text-sm text-zinc-100">Cancel My Stupidity</button>}
           <button
             onClick={handlePlayAnyway}
-            className={`flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-bold transition-all ${
+            className={`flex min-h-11 items-center gap-2 rounded-lg border px-4 py-2 text-sm font-bold transition-all ${
               isRoastMode
                 ? 'border-red-800/80 bg-red-950/80 text-red-200 hover:bg-red-900/90 shadow-md hover:scale-105'
                 : 'border-zinc-700/80 bg-zinc-800/80 text-zinc-200 hover:bg-zinc-700/80'
@@ -155,7 +178,7 @@ export function CoachOverlay({
 
           <button
             onClick={onAskHint}
-            className="flex items-center gap-2 rounded-lg border border-zinc-700/80 bg-zinc-800/80 px-4 py-2 text-sm font-bold text-zinc-200 transition-all hover:bg-zinc-700/80"
+            className="flex min-h-11 items-center gap-2 rounded-lg border border-zinc-700/80 bg-zinc-800/80 px-4 py-2 text-sm font-bold text-zinc-200 transition-all hover:bg-zinc-700/80"
           >
             <Lightbulb size={15} className="text-amber-400" />
             Hint Box
@@ -164,7 +187,7 @@ export function CoachOverlay({
           {showFollowUpButton && (
             <button
               onClick={onShowFollowUp}
-              className="flex items-center gap-2 rounded-lg border border-red-900/60 bg-red-950/80 px-4 py-2 text-sm font-bold text-red-400 transition-all hover:bg-red-900/80"
+              className="flex min-h-11 items-center gap-2 rounded-lg border border-red-900/60 bg-red-950/80 px-4 py-2 text-sm font-bold text-red-400 transition-all hover:bg-red-900/80"
             >
               <ShieldAlert size={15} />
               Show Follow Up Moves
@@ -173,8 +196,9 @@ export function CoachOverlay({
         </div>
 
         <button
+          aria-label="Dismiss coach warning"
           onClick={handleDismiss}
-          className="absolute right-2 top-2 p-1 text-xs text-zinc-500 transition-colors hover:text-zinc-300 bg-zinc-900/50 rounded-full"
+          className="absolute right-2 top-2 flex min-h-11 min-w-11 items-center justify-center text-xs text-zinc-500 transition-colors hover:text-zinc-300 bg-zinc-900/50 rounded-full"
           title="Dismiss"
         >
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>

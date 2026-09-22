@@ -17,6 +17,21 @@ declare global {
   }
 }
 
+let razorpayLoader: Promise<void> | null = null;
+function loadRazorpay() {
+  if (window.Razorpay) return Promise.resolve();
+  if (razorpayLoader) return razorpayLoader;
+  razorpayLoader = new Promise<void>((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error('Checkout could not be loaded. Check your connection and try again.'));
+    document.head.appendChild(script);
+  });
+  return razorpayLoader;
+}
+
 export function PaymentOverlay({ userId, onSuccess, onLogout }: PaymentOverlayProps) {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
@@ -43,6 +58,7 @@ export function PaymentOverlay({ userId, onSuccess, onLogout }: PaymentOverlayPr
       setLoading(true);
       setErrorMsg('');
       if (pending) { await verify(pending); return; }
+      await loadRazorpay();
       if (!window.Razorpay) throw new Error('Checkout is still loading. Please try again.');
       const { data: { session } } = await supabase.auth.getSession();
       if (!session || session.user.id !== userId) throw new Error('Please sign in again before paying.');
@@ -94,7 +110,7 @@ export function PaymentOverlay({ userId, onSuccess, onLogout }: PaymentOverlayPr
         </p>
 
         {errorMsg && (
-          <div className="mb-4 rounded-lg bg-red-500/10 p-3 text-sm text-red-400 border border-red-500/20">
+          <div role="alert" aria-live="assertive" className="mb-4 rounded-lg bg-red-500/10 p-3 text-sm text-red-400 border border-red-500/20">
             {errorMsg}
           </div>
         )}

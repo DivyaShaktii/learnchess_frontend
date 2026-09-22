@@ -108,7 +108,20 @@ class ApiError extends Error {
 }
 
 async function fetchWithCheck(url: string, options?: RequestInit) {
-  const res = await fetch(url, options);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+  const abortFromCaller = () => controller.abort();
+  options?.signal?.addEventListener('abort', abortFromCaller, { once: true });
+  let res: Response;
+  try {
+    res = await fetch(url, { ...options, signal: controller.signal });
+  } catch (error) {
+    if (controller.signal.aborted) throw new ApiError(408, 'The request took too long. Please try again.');
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+    options?.signal?.removeEventListener('abort', abortFromCaller);
+  }
   if (!res.ok) {
     let msg = `HTTP Error ${res.status}`;
     try {
