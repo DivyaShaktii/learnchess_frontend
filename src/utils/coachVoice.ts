@@ -67,10 +67,16 @@ export function speakDynamicRefutation(refutationSequence: string[], currentFen:
   try {
     const chess = new Chess(currentFen);
     const lostPieces = new Set<string>();
+    const lineMoves: Array<{ piece: string; to: string; san: string; captured?: string }> = [];
 
     for (let i = 0; i < Math.min(refutationSequence.length, 3); i++) {
       const moveUci = refutationSequence[i];
-      const move = chess.move(moveUci);
+      const move = chess.move({
+        from: moveUci.slice(0, 2),
+        to: moveUci.slice(2, 4),
+        promotion: moveUci[4] || 'q',
+      });
+      lineMoves.push(move);
       
       // If it's the opponent's turn (i is even) and they captured something
       if (i % 2 === 0 && move.captured) {
@@ -92,7 +98,28 @@ export function speakDynamicRefutation(refutationSequence: string[], currentFen:
       }
       speakCoachMessage(`Watch out! You will lose your ${piecesText} if you make this move.`, undefined, playAudio);
     } else {
-      speakCoachMessage(`You won't lose any pieces immediately, but you will lose your positional advantage.`, undefined, playAudio);
+      const pieceNames: Record<string, string> = {
+        p: 'pawn', n: 'knight', b: 'bishop', r: 'rook', q: 'queen', k: 'king',
+      };
+      const describe = (move: { piece: string; to: string; san: string }) => {
+        if (move.san.startsWith('O-O-O')) return 'castle queenside';
+        if (move.san.startsWith('O-O')) return 'castle kingside';
+        return `${pieceNames[move.piece] || 'piece'} to ${move.to}`;
+      };
+      const opponentReply = lineMoves[0];
+      const requiredResponse = lineMoves[1];
+      let message: string;
+
+      if (!opponentReply) {
+        message = 'Your opponent has a stronger continuation here. Check the highlighted line before deciding.';
+      } else if (opponentReply.san.includes('+') || opponentReply.san.includes('#')) {
+        message = `Your opponent can play ${describe(opponentReply)} with check, forcing you to respond.`;
+      } else if (requiredResponse) {
+        message = `Your opponent's strongest reply is ${describe(opponentReply)}. Your best response would be ${describe(requiredResponse)}.`;
+      } else {
+        message = `Your opponent's strongest reply is ${describe(opponentReply)}, taking control of the position.`;
+      }
+      speakCoachMessage(message, undefined, playAudio);
     }
   } catch (err) {
     console.warn("Failed to generate dynamic refutation voice", err);
