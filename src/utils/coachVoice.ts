@@ -47,6 +47,20 @@ export function speakGameWon(playAudio: boolean = true): void {
   speakCoachMessage('You win!', undefined, playAudio);
 }
 
+export function speakGameLost(playAudio: boolean = true): void {
+  if (typeof window === 'undefined') return;
+  speakCoachMessage('Checkmate. Your opponent wins this game.', undefined, playAudio);
+}
+
+export function speakGameDraw(isStalemate: boolean = false, playAudio: boolean = true): void {
+  if (typeof window === 'undefined') return;
+  speakCoachMessage(
+    isStalemate ? 'Stalemate. The game is a draw.' : 'The game ends in a draw.',
+    undefined,
+    playAudio,
+  );
+}
+
 export function speakDynamicRefutation(refutationSequence: string[], currentFen: string, playAudio: boolean = true): void {
   if (typeof window === 'undefined' || refutationSequence.length === 0) return;
   

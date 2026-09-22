@@ -28,6 +28,8 @@ import {
   speakPuzzleStartAnnouncement, 
   speakRefutationWarning, 
   speakGameWon, 
+  speakGameLost,
+  speakGameDraw,
   speakDynamicRefutation,
   speakRoastMoveCategory,
   speakRoastPreMoveWarning,
@@ -799,12 +801,16 @@ function App() {
           } else {
             if (isRoastMode) {
               speakRoastGameOver('robot_wins', coachVoiceEnabled);
+            } else {
+              speakGameLost(coachVoiceEnabled);
             }
           }
         } else if (chess.isDraw()) {
           msg = '🤝 Game Over! The game ended in a draw.';
           if (isRoastMode) {
             speakRoastGameOver(chess.isStalemate() ? 'stalemate' : 'draw', coachVoiceEnabled);
+          } else {
+            speakGameDraw(chess.isStalemate(), coachVoiceEnabled);
           }
         }
         setCoachMessage(msg);
@@ -847,12 +853,16 @@ function App() {
           } else {
             if (isRoastMode) {
               speakRoastGameOver('robot_wins', coachVoiceEnabled);
+            } else {
+              speakGameLost(coachVoiceEnabled);
             }
           }
         } else if (chess.isDraw()) {
           msg = '🤝 Game Over! The game ended in a draw.';
           if (isRoastMode) {
             speakRoastGameOver(chess.isStalemate() ? 'stalemate' : 'draw', coachVoiceEnabled);
+          } else {
+            speakGameDraw(chess.isStalemate(), coachVoiceEnabled);
           }
         }
         setCoachMessage(msg);

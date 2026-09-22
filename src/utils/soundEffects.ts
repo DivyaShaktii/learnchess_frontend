@@ -253,33 +253,10 @@ export function speakCoachMessage(text: string, onEnd?: () => void, playAudio = 
   });
 }
 
-export function playCoachClip(src: string, subtitle: string, playAudio = true) {
-  if (typeof window === 'undefined') return;
-  if (!playAudio) { dispatchSubtitle(subtitle); clearSubtitleAfter(5000); return; }
-  enqueueAudio((finish) => {
-    dispatchSubtitle(subtitle);
-    const audio = new Audio(src);
-    currentAudio = audio;
-    audio.preload = 'auto';
-    audio.volume = storedVolume();
-    let safetyTimer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
-      reportAudioError(); clearSubtitleAfter(7000); audio.pause(); finish();
-    }, 20000);
-    let concluded = false;
-    const conclude = (failed: boolean) => {
-      if (concluded) return;
-      concluded = true;
-      if (safetyTimer) clearTimeout(safetyTimer);
-      safetyTimer = null;
-      if (failed) reportAudioError();
-      clearSubtitleAfter(failed ? 7000 : 2000);
-      finish();
-    };
-    audio.onended = () => conclude(false);
-    audio.onerror = () => conclude(true);
-    audio.play().catch(() => conclude(true));
-    return () => { if (safetyTimer) clearTimeout(safetyTimer); audio.pause(); audio.currentTime = 0; };
-  });
+export function playCoachClip(_src: string, subtitle: string, playAudio = true) {
+  // Keep the legacy API, but route it through the same Kokoro service as all
+  // other coach speech so normal/professional modes cannot bypass Kokoro.
+  speakCoachMessage(subtitle, undefined, playAudio);
 }
 
 const preloadedAudio = new Map<string, HTMLAudioElement>();
