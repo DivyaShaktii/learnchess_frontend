@@ -80,7 +80,10 @@ export function dispatchSubtitle(text: string) {
 type AudioJob = (finish: () => void) => () => void;
 const audioQueue: AudioJob[] = [];
 let activeCleanup: (() => void) | null = null;
-let currentAudio: HTMLAudioElement | null = null;
+let coachAudioContext: AudioContext | null = null;
+let currentCoachSource: AudioBufferSourceNode | null = null;
+let currentCoachGain: GainNode | null = null;
+let unlockListenersInstalled = false;
 let generation = 0;
 
 const KOKORO_PRELOAD_MESSAGES = [
@@ -114,6 +117,32 @@ function loadKokoroAudio(text: string): Promise<Blob> {
   return request;
 }
 
+function getCoachAudioContext(): AudioContext | null {
+  if (coachAudioContext || typeof window === 'undefined') return coachAudioContext;
+  const AudioCtx = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  coachAudioContext = AudioCtx ? new AudioCtx() : null;
+  return coachAudioContext;
+}
+
+function installCoachAudioUnlock() {
+  if (unlockListenersInstalled || typeof window === 'undefined') return;
+  unlockListenersInstalled = true;
+  const unlock = () => {
+    const context = getCoachAudioContext();
+    if (!context || context.state === 'running') {
+      window.removeEventListener('pointerdown', unlock, true);
+      window.removeEventListener('keydown', unlock, true);
+      return;
+    }
+    void context.resume().then(() => {
+      window.removeEventListener('pointerdown', unlock, true);
+      window.removeEventListener('keydown', unlock, true);
+    }).catch(() => { /* Keep listeners so the next gesture can retry. */ });
+  };
+  window.addEventListener('pointerdown', unlock, true);
+  window.addEventListener('keydown', unlock, true);
+}
+
 const storedVolume = () => {
   if (typeof window === 'undefined') return 0.8;
   const value = Number(window.localStorage.getItem('coach-volume'));
@@ -124,7 +153,9 @@ export function setCoachVolume(value: number) {
   if (typeof window === 'undefined') return;
   const volume = Math.max(0.1, Math.min(1, value));
   window.localStorage.setItem('coach-volume', String(volume));
-  if (currentAudio) currentAudio.volume = volume;
+  if (currentCoachGain && coachAudioContext) {
+    currentCoachGain.gain.setValueAtTime(volume, coachAudioContext.currentTime);
+  }
 }
 function reportAudioError() {
   if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('coach-audio-error', {
@@ -142,7 +173,8 @@ function runNextJob() {
     finished = true;
     if (jobGeneration !== generation) return;
     activeCleanup = null;
-    currentAudio = null;
+    currentCoachSource = null;
+    currentCoachGain = null;
     runNextJob();
   };
   activeCleanup = job(finish);
@@ -156,17 +188,22 @@ export function stopCoachAudio(clearSubtitle = true) {
   audioQueue.length = 0;
   activeCleanup?.();
   activeCleanup = null;
-  if (currentAudio) {
-    currentAudio.pause();
-    currentAudio.currentTime = 0;
+  if (currentCoachSource) {
+    currentCoachSource.onended = null;
+    try { currentCoachSource.stop(); } catch {}
+    currentCoachSource.disconnect();
   }
-  currentAudio = null;
+  currentCoachSource = null;
+  currentCoachGain?.disconnect();
+  currentCoachGain = null;
   if (typeof window !== 'undefined') window.speechSynthesis?.cancel();
   if (clearSubtitle) dispatchSubtitle('');
 }
 
 export function prepareCoachVoice() {
   if (typeof window === 'undefined') return;
+  installCoachAudioUnlock();
+  getCoachAudioContext();
   for (const message of KOKORO_PRELOAD_MESSAGES) {
     void loadKokoroAudio(message).catch(() => { /* A later playback can retry. */ });
   }
@@ -180,22 +217,21 @@ export function speakCoachMessage(text: string, onEnd?: () => void, playAudio = 
     dispatchSubtitle(text);
     let cancelled = false;
     let concluded = false;
-    let objectUrl: string | null = null;
-    let generatedAudio: HTMLAudioElement | null = null;
+    let source: AudioBufferSourceNode | null = null;
+    let gain: GainNode | null = null;
     let requestTimer: ReturnType<typeof setTimeout> | null = null;
 
     const releaseGeneratedAudio = () => {
-      if (generatedAudio) {
-        generatedAudio.onended = null;
-        generatedAudio.onerror = null;
-        generatedAudio.pause();
-        generatedAudio.removeAttribute('src');
-        generatedAudio.load();
+      if (source) {
+        source.onended = null;
+        try { source.stop(); } catch {}
+        source.disconnect();
       }
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-      generatedAudio = null;
-      objectUrl = null;
-      currentAudio = null;
+      gain?.disconnect();
+      source = null;
+      gain = null;
+      currentCoachSource = null;
+      currentCoachGain = null;
     };
     const conclude = (failed: boolean) => {
       if (concluded || cancelled) return;
@@ -209,16 +245,26 @@ export function speakCoachMessage(text: string, onEnd?: () => void, playAudio = 
     };
 
     requestTimer = setTimeout(() => conclude(true), 12000);
-    void loadKokoroAudio(text).then((blob) => {
+    void loadKokoroAudio(text).then(async (blob) => {
       if (cancelled || concluded) return;
-      objectUrl = URL.createObjectURL(blob);
-      generatedAudio = new Audio(objectUrl);
-      currentAudio = generatedAudio;
-      generatedAudio.preload = 'auto';
-      generatedAudio.volume = storedVolume();
-      generatedAudio.onended = () => conclude(false);
-      generatedAudio.onerror = () => conclude(true);
-      return generatedAudio.play().catch(() => conclude(true));
+      const context = getCoachAudioContext();
+      if (!context) throw new Error('Web Audio is unavailable');
+      if (context.state === 'suspended') await context.resume();
+      if (cancelled || concluded || context.state !== 'running') {
+        throw new Error('Coach audio is locked');
+      }
+      const buffer = await context.decodeAudioData(await blob.arrayBuffer());
+      if (cancelled || concluded) return;
+      source = context.createBufferSource();
+      gain = context.createGain();
+      source.buffer = buffer;
+      gain.gain.value = storedVolume();
+      source.connect(gain);
+      gain.connect(context.destination);
+      currentCoachSource = source;
+      currentCoachGain = gain;
+      source.onended = () => conclude(false);
+      source.start();
     }).catch(() => {
       if (!cancelled && !concluded) conclude(true);
     });
