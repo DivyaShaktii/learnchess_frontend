@@ -19,7 +19,7 @@ import { StatisticsModal } from './StatisticsModal';
 import { AvatarImg } from '../utils/avatarUtils';
 import { BoardThemeSelector, BOARD_THEMES } from './BoardThemeSelector';
 import { api } from '../services/api';
-import type { MoveAlternative, ThreatPreview } from '../services/api';
+import type { MoveAlternative, ThreatPreview, CoachExplanation } from '../services/api';
 import { getMoveSquares } from '../utils/chessTranslator';
 import { chessSounds } from '../utils/soundEffects';
 import { 
@@ -126,6 +126,9 @@ function App() {
   const [threat, setThreat] = useState<ThreatPreview | null>(null);
   const [alternatives, setAlternatives] = useState<MoveAlternative[]>([]);
   const [refutationSequence, setRefutationSequence] = useState<string[]>([]);
+  const [coachExplanation, setCoachExplanation] = useState<CoachExplanation | null>(null);
+  const [analysisId, setAnalysisId] = useState<string | null>(null);
+  const [isFollowUpLoading, setIsFollowUpLoading] = useState(false);
   const [squareSuggestions, setSquareSuggestions] = useState<MoveAlternative[]>([]);
   const [followUpArrows, setFollowUpArrows] = useState<[string, string, string][]>([]);
   const [opponentThreatSquare, setOpponentThreatSquare] = useState<string | null>(null);
@@ -145,6 +148,7 @@ function App() {
   const lastSpokenMessageRef = useRef('');
   const hasSpokenInitialGreeting = useRef(false);
   const hasSpokenBookMoveRef = useRef(false);
+  const announcedOpeningRef = useRef<string | null>(null);
   const roastConsentKey = session?.user?.id ? `chess_roast_mode_verified_18_${session.user.id}` : null;
   useEffect(() => {
     setIsRoastMode(false);
@@ -462,6 +466,7 @@ function App() {
       lastSpokenMessageRef.current = '';
       hasSpokenInitialGreeting.current = false;
       hasSpokenBookMoveRef.current = false;
+      announcedOpeningRef.current = null;
       resetWarningState();
 
       const activeMode = overrideMode || gameMode;
@@ -505,6 +510,9 @@ function App() {
     setHintSquare(null);
     setFollowUpArrows([]);
     setRefutationSequence([]);
+    setCoachExplanation(null);
+    setAnalysisId(null);
+    setIsFollowUpLoading(false);
     setOpponentThreatSquare(null);
     setClassification(undefined);
     setThreat(null);
@@ -651,6 +659,8 @@ function App() {
         const labelMap: Record<string, string> = {
           Brilliant: 'Brilliant',
           Great: 'Great',
+          'Great Move': 'Great',
+          'Only Move': 'Only Move',
           'Best Move': 'Best',
           Best: 'Best',
           Excellent: 'Excellent',
@@ -668,19 +678,23 @@ function App() {
         setThreat(preRes.threat_preview);
         setAlternatives(preRes.top_alternatives ?? []);
         setRefutationSequence(preRes.refutation_sequence ?? []);
+        setCoachExplanation(preRes.coach_explanation ?? null);
+        setAnalysisId(preRes.analysis_id ?? null);
 
-        // A backend warning must always produce the decision popup while the
-        // coach is enabled. Professional mode changes tone, not move safety.
-        const shouldInterrupt = coachMode !== 'off' && Boolean(preRes.should_warn || preRes.is_box_tier);
+        const v2Action = preRes.coach_explanation?.interruption?.[coachMode];
+        const shouldInterrupt = coachMode !== 'off' && (
+          v2Action ? v2Action === 'popup' : Boolean(preRes.should_warn || preRes.is_box_tier)
+        );
 
         if (shouldInterrupt) {
           if (roastEnabledRef.current) {
             const roastText = speakRoastPreMoveWarning(coachVoiceEnabled);
             setCurrentRoastWarning(roastText);
           } else {
-            // The detailed explanation is already visible in the popup. Speak
-            // the short cached label immediately and interrupt stale audio.
-            speakMoveCategory(preRes.label, coachVoiceEnabled, undefined, true);
+            speakCoachMessage(
+              preRes.coach_explanation?.speech.immediate || `${preRes.label}.`,
+              undefined, coachVoiceEnabled, true,
+            );
           }
           setBadMoveSquare(move.to);
           setWarningActive(true);
@@ -689,11 +703,24 @@ function App() {
           return;
         }
 
+        if (v2Action === 'audio' && preRes.coach_explanation) {
+          speakCoachMessage(preRes.coach_explanation.speech.immediate, undefined, coachVoiceEnabled);
+          await commitAndFinalize(moveUci, true, preRes.analysis_id);
+          return;
+        }
+
+        if (preRes.opening && announcedOpeningRef.current !== preRes.opening.name) {
+          announcedOpeningRef.current = preRes.opening.name;
+          speakCoachMessage(`This is the ${preRes.opening.name}.`, undefined, coachVoiceEnabled);
+          await commitAndFinalize(moveUci, true, preRes.analysis_id);
+          return;
+        }
+
         setBadMoveSquare(null);
         setOverlayVisible(false);
         // Keep isThinking=true — commitAndFinalize's finally block clears it.
         // This prevents the robot from firing before the player's move is committed.
-        await commitAndFinalize(moveUci);
+        await commitAndFinalize(moveUci, false, preRes.analysis_id);
       } catch (error) {
         if (operationGeneration !== gameGenerationRef.current) return;
         console.error('Error in handleMoveAttempt:', error);
@@ -713,11 +740,12 @@ function App() {
       setIsThinking(true);
       const moveUci = pendingMoveUci;
       const targetFen = pendingFen;
+      const moveAnalysisId = analysisId;
       resetWarningState();
       try {
         // Play sound now with the original pre-move fen (before setFen updates state)
         if (targetFen) setFen(targetFen);
-        await commitAndFinalize(moveUci, !isRoastMode);
+        await commitAndFinalize(moveUci, !isRoastMode, moveAnalysisId);
       } catch (err) {
         if (operationGeneration === gameGenerationRef.current) handleError(err);
       } finally {
@@ -740,13 +768,13 @@ function App() {
     }
   };
 
-  const commitAndFinalize = async (moveUci: string, skipVoice: boolean = false) => {
+  const commitAndFinalize = async (moveUci: string, skipVoice: boolean = false, moveAnalysisId?: string | null) => {
     if (!gameId) return;
     const operationGeneration = gameGenerationRef.current;
     const activeGameId = gameId;
 
     try {
-      const commitRes = await api.commitMove(activeGameId, moveUci);
+      const commitRes = await api.commitMove(activeGameId, moveUci, moveAnalysisId);
       if (operationGeneration !== gameGenerationRef.current) return;
       const fenBeforeMove = previousFenRef.current;
       playMoveSoundForUci(fenBeforeMove, moveUci);
@@ -758,6 +786,8 @@ function App() {
       const labelMap: Record<string, string> = {
         Brilliant: 'Brilliant',
         Great: 'Great',
+        'Great Move': 'Great',
+        'Only Move': 'Only Move',
         'Best Move': 'Best',
         Best: 'Best',
         Excellent: 'Excellent',
@@ -787,6 +817,8 @@ function App() {
       setPendingMoveUci(null);
       setPendingFen(null);
       setWarningActive(false);
+      setAnalysisId(null);
+      setCoachExplanation(null);
 
       if (commitRes.is_game_over) {
         const chess = new Chess(commitRes.fen);
@@ -916,10 +948,30 @@ function App() {
   };
 
   const handleShowFollowUp = async () => {
-    if (!pendingMoveUci || refutationSequence.length === 0) return;
+    if (!pendingMoveUci) return;
     const followUpGeneration = ++followUpGenerationRef.current;
     const gameGeneration = gameGenerationRef.current;
     const isCurrent = () => followUpGeneration === followUpGenerationRef.current && gameGeneration === gameGenerationRef.current;
+    let sequence = refutationSequence;
+
+    if (analysisId && gameId) {
+      setIsFollowUpLoading(true);
+      try {
+        const detailed = await api.explainMove(gameId, pendingMoveUci, analysisId);
+        if (!isCurrent()) return;
+        sequence = detailed.refutation_sequence || [];
+        setRefutationSequence(sequence);
+        setThreat(detailed.threat_preview);
+        setCoachExplanation(detailed.coach_explanation);
+        speakCoachMessage(detailed.coach_explanation.speech.follow_up, undefined, coachVoiceEnabled, true);
+      } catch (error) {
+        if (isCurrent()) handleError(error);
+        return;
+      } finally {
+        if (isCurrent()) setIsFollowUpLoading(false);
+      }
+    }
+    if (sequence.length === 0) return;
 
     // Start with the position before the bad move
     const chess = new Chess(previousFenRef.current);
@@ -931,18 +983,18 @@ function App() {
       setBadMoveSquare(playerMove.to); // Highlight player's piece in red
       playMoveSoundForUci(previousFenRef.current, pendingMoveUci);
 
-      speakDynamicRefutation(refutationSequence, chess.fen(), coachVoiceEnabled);
+      if (!analysisId) speakDynamicRefutation(sequence, chess.fen(), coachVoiceEnabled);
     } catch {
       return;
     }
 
-    // 2. Play the opponent's refutation sequence (limit to 3 moves)
-    const sequence = refutationSequence.slice(0, 3);
-    for (let i = 0; i < sequence.length; i++) {
+    // 2. Play the verified opponent continuation (up to eight plies).
+    const displayedSequence = sequence.slice(0, 8);
+    for (let i = 0; i < displayedSequence.length; i++) {
       await new Promise((resolve) => setTimeout(resolve, 2000));
       if (!isCurrent()) return;
       try {
-        const uci = sequence[i];
+        const uci = displayedSequence[i];
         const moveFen = chess.fen();
         const move = chess.move(uci);
         setFen(chess.fen());
@@ -1418,6 +1470,8 @@ function App() {
                     onShowFollowUp={handleShowFollowUp}
                     isRoastMode={isRoastMode}
                     roastMessage={currentRoastWarning}
+                    explanation={coachExplanation}
+                    isFollowUpLoading={isFollowUpLoading}
                   />
                 }
                 customLightSquareStyle={{ backgroundColor: BOARD_THEMES.find(t => t.id === boardThemeId)?.light }}

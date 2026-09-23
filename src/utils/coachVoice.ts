@@ -10,6 +10,8 @@ const CATEGORY_MESSAGES: Record<string, string> = {
   Brilliant: 'Brilliant move!',
   Excellent: 'Excellent move.',
   Great: 'Great move.',
+  'Great Move': 'Great move.',
+  'Only Move': 'Only move.',
   Good: 'Good move.',
   Inaccuracy: 'That is a slight inaccuracy.',
   Mistake: 'Hold on, that is a mistake. Take a moment to find a better move.',

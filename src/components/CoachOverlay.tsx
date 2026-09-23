@@ -2,7 +2,7 @@
 
 import { useEffect, useCallback, useState, useRef } from 'react';
 import { Lightbulb, Play, ShieldAlert } from 'lucide-react';
-import type { ThreatPreview, MoveAlternative } from '../services/api';
+import type { ThreatPreview, MoveAlternative, CoachExplanation } from '../services/api';
 
 interface CoachOverlayProps {
   visible: boolean;
@@ -21,6 +21,8 @@ interface CoachOverlayProps {
   onShowFollowUp: () => void;
   isRoastMode?: boolean;
   roastMessage?: string;
+  explanation?: CoachExplanation | null;
+  isFollowUpLoading?: boolean;
 }
 
 export function CoachOverlay({
@@ -40,8 +42,10 @@ export function CoachOverlay({
   onShowFollowUp,
   isRoastMode = false,
   roastMessage = '',
+  explanation = null,
+  isFollowUpLoading = false,
 }: CoachOverlayProps) {
-  const isBadMove = ['Blunder', 'Mistake', 'Inaccuracy', 'Opening Pawn Warning'].includes(classification || '');
+  const isBadMove = ['Worst Move', 'Blunder', 'Mistake', 'Inaccuracy', 'Opening Pawn Warning'].includes(classification || '');
   const showFollowUpButton = isBadMove;
 
   const [position, setPosition] = useState({ x: 0, y: 0 });
@@ -162,6 +166,16 @@ export function CoachOverlay({
           </div>
         )}
 
+        {explanation && (
+          <div className="max-w-xl px-6 pt-4 text-center" aria-live="polite">
+            <p className="text-sm font-semibold text-zinc-100">{explanation.summary}</p>
+            <p className="mt-1 text-xs text-zinc-400">{explanation.detail}</p>
+            <p className="mt-1 text-[10px] uppercase tracking-wider text-zinc-500">
+              {explanation.confidence.tier} confidence
+            </p>
+          </div>
+        )}
+
         <div className="flex flex-wrap items-center justify-center gap-3 px-6 py-4">
           {isRoastMode && <button onClick={handleDismiss} className="min-h-11 rounded-lg border border-zinc-600 px-4 py-2 text-sm text-zinc-100">Cancel My Stupidity</button>}
           <button
@@ -187,10 +201,11 @@ export function CoachOverlay({
           {showFollowUpButton && (
             <button
               onClick={onShowFollowUp}
+              disabled={isFollowUpLoading}
               className="flex min-h-11 items-center gap-2 rounded-lg border border-red-900/60 bg-red-950/80 px-4 py-2 text-sm font-bold text-red-400 transition-all hover:bg-red-900/80"
             >
               <ShieldAlert size={15} />
-              Show Follow Up Moves
+              {isFollowUpLoading ? 'Analysing Follow Up…' : 'Show Follow Up Moves'}
             </button>
           )}
         </div>

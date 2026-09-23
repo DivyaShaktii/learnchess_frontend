@@ -43,6 +43,49 @@ export interface PreMoveCheckResponse {
   best_win_probability?: number | null;
   played_win_probability?: number | null;
   win_probability_loss?: number | null;
+  analysis_version?: 'v1' | 'v2';
+  analysis_id?: string | null;
+  game_phase?: 'opening' | 'middlegame' | 'endgame' | null;
+  evaluation_source?: 'stockfish' | 'tablebase';
+  opening?: OpeningInfo | null;
+  coach_explanation?: CoachExplanation | null;
+  analysis_ms?: number | null;
+}
+
+export interface OpeningInfo {
+  eco: string;
+  name: string;
+  family: string;
+  variation?: string | null;
+}
+
+export type CoachAction = 'popup' | 'audio' | 'none';
+export interface CoachExplanation {
+  analysis_id?: string;
+  primary_reason: string;
+  confidence: { score: number; tier: 'high' | 'medium' | 'low' };
+  summary: string;
+  detail: string;
+  material: {
+    gained: number; lost: number; net: number;
+    gained_pieces: string[]; lost_pieces: string[];
+    exchange_complete: boolean; plies_analyzed: number; line: string[];
+  };
+  tactical_theme?: string | null;
+  positional_factors: string[];
+  principal_variation: string[];
+  speech: { immediate: string; follow_up: string };
+  interruption: Record<'normal' | 'professional' | 'roast' | 'off', CoachAction>;
+}
+
+export interface MoveExplainResponse {
+  analysis_version: 'v2';
+  analysis_id: string;
+  evaluation_source: 'stockfish' | 'tablebase';
+  coach_explanation: CoachExplanation;
+  threat_preview: ThreatPreview;
+  refutation_sequence: string[];
+  analysis_ms: number;
 }
 
 export interface CommitMoveResponse {
@@ -64,6 +107,8 @@ export interface GameStateResponse {
     san: string;
     classification: string;
     fen_before?: string;
+    analysis_version?: 'v1' | 'v2';
+    analysis_id?: string | null;
   }>;
 }
 
@@ -157,11 +202,19 @@ export const api = {
     });
   },
 
-  async commitMove(gameId: string, moveUci: string): Promise<CommitMoveResponse> {
+  async explainMove(gameId: string, moveUci: string, analysisId: string): Promise<MoveExplainResponse> {
+    return fetchWithCheck(`${API_BASE}/api/move/explain`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ game_id: gameId, move_uci: moveUci, analysis_id: analysisId }),
+    });
+  },
+
+  async commitMove(gameId: string, moveUci: string, analysisId?: string | null): Promise<CommitMoveResponse> {
     return fetchWithCheck(`${API_BASE}/api/move/commit`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ game_id: gameId, move_uci: moveUci }),
+      body: JSON.stringify({ game_id: gameId, move_uci: moveUci, analysis_id: analysisId || null }),
     });
   },
 

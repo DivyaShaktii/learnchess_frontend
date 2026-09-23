@@ -1,5 +1,6 @@
-// Web Audio API synthesizer and a single, queued coach-audio controller.
+import { STATIC_KOKORO_AUDIO } from '../data/kokoroAudioManifest';
 
+// Web Audio API synthesizer and a single, queued coach-audio controller.
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
 
 class ChessSoundEngine {
@@ -97,15 +98,19 @@ const KOKORO_PRELOAD_MESSAGES = [
 const kokoroAudioCache = new Map<string, Blob>();
 const kokoroRequests = new Map<string, Promise<Blob>>();
 
+export function getStaticCoachAudioPath(text: string): string | null {
+  return STATIC_KOKORO_AUDIO[text] || null;
+}
+
 function loadKokoroAudio(text: string): Promise<Blob> {
   const cached = kokoroAudioCache.get(text);
   if (cached) return Promise.resolve(cached);
   const pending = kokoroRequests.get(text);
   if (pending) return pending;
 
-  const request = fetch(`${API_BASE}/api/tts`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+  const staticSource = getStaticCoachAudioPath(text);
+  const request = fetch(staticSource || `${API_BASE}/api/tts`, staticSource ? undefined : {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text, voice: 'af_bella', speed: 1 }),
   }).then(async (response) => {
     if (!response.ok) throw new Error(`TTS returned ${response.status}`);
@@ -205,6 +210,9 @@ export function prepareCoachVoice() {
   installCoachAudioUnlock();
   getCoachAudioContext();
   for (const message of KOKORO_PRELOAD_MESSAGES) {
+    void loadKokoroAudio(message).catch(() => { /* A later playback can retry. */ });
+  }
+  for (const message of Object.keys(STATIC_KOKORO_AUDIO)) {
     void loadKokoroAudio(message).catch(() => { /* A later playback can retry. */ });
   }
 }
