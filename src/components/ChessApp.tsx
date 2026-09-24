@@ -692,9 +692,11 @@ function App() {
             const roastText = speakRoastPreMoveWarning(coachVoiceEnabled);
             setCurrentRoastWarning(roastText);
           } else {
-            speakCoachMessage(
+            speakMoveCategory(
+              preRes.label,
+              coachVoiceEnabled,
               preRes.coach_explanation?.speech.immediate || coachPromptForClassification(preRes.label),
-              undefined, coachVoiceEnabled, true,
+              true,
             );
           }
           setBadMoveSquare(move.to);
@@ -705,7 +707,7 @@ function App() {
         }
 
         if (v2Action === 'audio' && preRes.coach_explanation) {
-          speakCoachMessage(preRes.coach_explanation.speech.immediate, undefined, coachVoiceEnabled);
+          speakMoveCategory(preRes.label, coachVoiceEnabled, preRes.coach_explanation.speech.immediate);
           await commitAndFinalize(moveUci, true, preRes.analysis_id);
           return;
         }
@@ -786,18 +788,18 @@ function App() {
       const label = commitRes.classification || 'Move';
       const labelMap: Record<string, string> = {
         Brilliant: 'Brilliant',
-        Great: 'Great',
-        'Great Move': 'Great',
+        Great: 'Great Move',
+        'Great Move': 'Great Move',
         'Only Move': 'Only Move',
-        'Best Move': 'Best',
-        Best: 'Best',
+        'Best Move': 'Best Move',
+        Best: 'Best Move',
         Excellent: 'Excellent',
         Good: 'Good',
         Book: 'Book',
         Inaccuracy: 'Inaccuracy',
         Mistake: 'Mistake',
         Blunder: 'Blunder',
-        'Worst Move': 'Blunder',
+        'Worst Move': 'Worst Move',
       };
       const cleanLabel = labelMap[label] || label;
       setClassification(cleanLabel);

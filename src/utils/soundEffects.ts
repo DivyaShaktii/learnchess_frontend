@@ -216,9 +216,10 @@ export function speakCoachMessage(text: string, onEnd?: () => void, playAudio = 
   });
 }
 
-export function playCoachClip(src: string, subtitle: string, playAudio = true) {
+export function playCoachClip(src: string, subtitle: string, playAudio = true, priority = false) {
   if (typeof window === 'undefined') return;
   if (!playAudio) { dispatchSubtitle(subtitle); clearSubtitleAfter(5000); return; }
+  if (priority) stopCoachAudio(false);
   enqueueAudio((finish) => {
     dispatchSubtitle(subtitle);
     const audio = new Audio(src);

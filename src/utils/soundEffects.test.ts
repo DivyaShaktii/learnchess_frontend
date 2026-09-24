@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { CLASSIFICATION_PROMPTS, coachPromptForClassification, speakMoveCategory } from './coachVoice';
+import { CLASSIFICATION_PROMPTS, classificationClipFor, coachPromptForClassification, speakMoveCategory } from './coachVoice';
 import { speakCoachMessage, stopCoachAudio } from './soundEffects';
 
 class MockUtterance {
@@ -19,12 +19,32 @@ class MockUtterance {
 
 const speak = vi.fn();
 const cancel = vi.fn();
+const audioInstances: MockAudio[] = [];
+
+class MockAudio {
+  src = '';
+  preload = '';
+  volume = 1;
+  currentTime = 0;
+  onended: (() => void) | null = null;
+  onerror: (() => void) | null = null;
+  play = vi.fn().mockResolvedValue(undefined);
+  pause = vi.fn();
+  load = vi.fn();
+
+  constructor(src = '') {
+    this.src = src;
+    audioInstances.push(this);
+  }
+}
 
 beforeEach(() => {
   speak.mockReset();
   cancel.mockReset();
+  audioInstances.length = 0;
   vi.spyOn(Math, 'random').mockReturnValue(0);
   vi.stubGlobal('SpeechSynthesisUtterance', MockUtterance);
+  vi.stubGlobal('Audio', MockAudio);
   Object.defineProperty(window, 'speechSynthesis', {
     configurable: true,
     value: {
@@ -67,21 +87,26 @@ describe('browser synthetic coach voice', () => {
     fetchSpy.mockRestore();
   });
 
-  it('uses the new interactive Inaccuracy prompt', async () => {
+  it('plays the matching recorded Inaccuracy clip instead of synthetic speech', () => {
     speakMoveCategory('Inaccuracy');
-    await vi.waitFor(() => expect(speak).toHaveBeenCalledOnce());
-    expect(speak.mock.calls[0][0].text).toBe(
-      'Hold on. Consider the other available moves—there may be a better option.',
-    );
-    speak.mock.calls[0][0].onend?.();
+    expect(audioInstances[0].src).toBe('/classification-audio/inaccuracy/1.mp3');
+    expect(audioInstances[0].play).toHaveBeenCalledOnce();
+    expect(speak).not.toHaveBeenCalled();
   });
 
-  it('uses the new patient Mistake prompt', async () => {
-    speakMoveCategory('Mistake');
+  it('keeps backend-selected text paired with its exact recording', () => {
+    const prompt = CLASSIFICATION_PROMPTS.Mistake[4];
+    expect(classificationClipFor('Mistake', prompt)).toEqual({
+      src: '/classification-audio/mistake/5.mp3',
+      text: prompt,
+    });
+  });
+
+  it('uses synthetic speech for position-specific text', async () => {
+    speakMoveCategory('Mistake', true, 'Their rook can capture your queen next.');
     await vi.waitFor(() => expect(speak).toHaveBeenCalledOnce());
-    expect(speak.mock.calls[0][0].text).toBe(
-      'This is a mistake. Take your time and reconsider the position.',
-    );
+    expect(speak.mock.calls[0][0].text).toBe('Their rook can capture your queen next.');
+    expect(audioInstances).toHaveLength(0);
     speak.mock.calls[0][0].onend?.();
   });
 
