@@ -1,5 +1,5 @@
 // Audio playback layer for move classification feedback
-import { playCoachClip, speakCoachMessage } from './soundEffects';
+import { clearSubtitleAfter, dispatchSubtitle, playCoachClip, speakFollowUpMessage } from './soundEffects';
 import { Chess } from 'chess.js';
 import { getRandomRoast, getRoastCategoryForMove, RoastCategoryKey } from '../data/roastDialogues';
 
@@ -138,43 +138,44 @@ export function speakMoveCategory(label: string, playAudio: boolean = true, fall
     playCoachClip(clip.src, clip.text, playAudio, priority);
     return;
   }
-  speakCoachMessage(fallbackText || coachPromptForClassification(label), undefined, playAudio, priority);
+  const text = fallbackText || coachPromptForClassification(label);
+  dispatchSubtitle(text);
+  clearSubtitleAfter(5000);
 }
 
 export function speakRefutationWarning(playAudio: boolean = true): void {
   if (typeof window === 'undefined') return;
 
-  speakCoachMessage('Watch out! Here is their plan.', undefined, playAudio);
+  speakFollowUpMessage('Watch out! Here is their plan.', undefined, playAudio);
 }
 
 export function speakRatingAnnouncement(rating: number, tier: string, playAudio: boolean = true): void {
   if (typeof window === 'undefined') return;
-  speakCoachMessage(`${tier} Mode, Rating ${rating}`, undefined, playAudio);
+  dispatchSubtitle(`${tier} Mode, Rating ${rating}`);
+  clearSubtitleAfter(5000);
 }
 
 export function speakPuzzleStartAnnouncement(color: string, playAudio: boolean = true): void {
   if (typeof window === 'undefined') return;
-  speakCoachMessage(`Playing as ${color}. Find the best sequence of moves!`, undefined, playAudio);
+  dispatchSubtitle(`Playing as ${color}. Find the best sequence of moves!`);
+  clearSubtitleAfter(5000);
 }
 
 export function speakGameWon(playAudio: boolean = true): void {
   if (typeof window === 'undefined') return;
 
-  speakCoachMessage('You win!', undefined, playAudio);
+  playCoachClip('/coach-audio/win.wav', 'You win!', playAudio);
 }
 
 export function speakGameLost(playAudio: boolean = true): void {
   if (typeof window === 'undefined') return;
-  speakCoachMessage('Checkmate. Your opponent wins this game.', undefined, playAudio);
+  playCoachClip('/coach-audio/loss.wav', 'Checkmate. Your opponent wins this game.', playAudio);
 }
 
 export function speakGameDraw(isStalemate: boolean = false, playAudio: boolean = true): void {
   if (typeof window === 'undefined') return;
-  speakCoachMessage(
-    isStalemate ? 'Stalemate. The game is a draw.' : 'The game ends in a draw.',
-    undefined,
-    playAudio,
-  );
+  const text = isStalemate ? 'Stalemate. The game is a draw.' : 'The game ends in a draw.';
+  playCoachClip(isStalemate ? '/coach-audio/stalemate.wav' : '/coach-audio/draw.wav', text, playAudio);
 }
 
 export function speakDynamicRefutation(refutationSequence: string[], currentFen: string, playAudio: boolean = true): void {
@@ -212,7 +213,7 @@ export function speakDynamicRefutation(refutationSequence: string[], currentFen:
       if (piecesList.length > 1) {
         piecesText = piecesList.slice(0, -1).join(', ') + ' and ' + piecesList[piecesList.length - 1];
       }
-      speakCoachMessage(`Watch out! You will lose your ${piecesText} if you make this move.`, undefined, playAudio);
+      speakFollowUpMessage(`Watch out! You will lose your ${piecesText} if you make this move.`, undefined, playAudio);
     } else {
       const pieceNames: Record<string, string> = {
         p: 'pawn', n: 'knight', b: 'bishop', r: 'rook', q: 'queen', k: 'king',
@@ -235,7 +236,7 @@ export function speakDynamicRefutation(refutationSequence: string[], currentFen:
       } else {
         message = `Your opponent's strongest reply is ${describe(opponentReply)}, taking control of the position.`;
       }
-      speakCoachMessage(message, undefined, playAudio);
+      speakFollowUpMessage(message, undefined, playAudio);
     }
   } catch (err) {
     console.warn("Failed to generate dynamic refutation voice", err);
@@ -256,28 +257,32 @@ export function speakRoastMoveCategory(
   if (typeof window === 'undefined') return '';
   const category = getRoastCategoryForMove(label, cpLoss, isOpening);
   const line = getRandomRoast(category);
-  speakCoachMessage(line, undefined, playAudio);
+  dispatchSubtitle(line);
+  clearSubtitleAfter(5000);
   return line;
 }
 
 export function speakRoastPreMoveWarning(playAudio: boolean = true): string {
   if (typeof window === 'undefined') return '';
   const line = 'Hold it, genius. That move deserves another look.';
-  speakCoachMessage(line, undefined, playAudio, true);
+  dispatchSubtitle(line);
+  clearSubtitleAfter(5000);
   return line;
 }
 
 export function speakRoastUndo(playAudio: boolean = true): string {
   if (typeof window === 'undefined') return '';
   const line = getRandomRoast('UNDO_MOVE');
-  speakCoachMessage(line, undefined, playAudio);
+  dispatchSubtitle(line);
+  clearSubtitleAfter(5000);
   return line;
 }
 
 export function speakRoastSlowPlay(playAudio: boolean = true): string {
   if (typeof window === 'undefined') return '';
   const line = getRandomRoast('SLOW_PLAY');
-  speakCoachMessage(line, undefined, playAudio);
+  dispatchSubtitle(line);
+  clearSubtitleAfter(5000);
   return line;
 }
 
@@ -292,6 +297,13 @@ export function speakRoastGameOver(
   if (outcome === 'draw') category = 'DRAW';
 
   const line = getRandomRoast(category);
-  speakCoachMessage(line, undefined, playAudio);
+  const clips = {
+    player_wins: ['/coach-audio/win.wav', 'You win!'],
+    robot_wins: ['/coach-audio/loss.wav', 'Checkmate. Your opponent wins this game.'],
+    stalemate: ['/coach-audio/stalemate.wav', 'Stalemate. The game is a draw.'],
+    draw: ['/coach-audio/draw.wav', 'The game ends in a draw.'],
+  } as const;
+  const [src, subtitle] = clips[outcome];
+  playCoachClip(src, subtitle, playAudio);
   return line;
 }

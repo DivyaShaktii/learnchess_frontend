@@ -153,11 +153,7 @@ async function resolveVoice() {
   return selectedVoice;
 }
 
-export function prepareCoachVoice() {
-  if (typeof window !== 'undefined' && 'speechSynthesis' in window) void resolveVoice();
-}
-
-export function speakCoachMessage(text: string, onEnd?: () => void, playAudio = true, priority = false) {
+export function speakFollowUpMessage(text: string, onEnd?: () => void, playAudio = true, priority = false) {
   if (typeof window === 'undefined' || !text) return;
   if (!playAudio) { dispatchSubtitle(text); clearSubtitleAfter(5000); onEnd?.(); return; }
   if (!('speechSynthesis' in window)) {

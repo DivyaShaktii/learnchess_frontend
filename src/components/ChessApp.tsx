@@ -10,8 +10,7 @@ import AuthForm from './AuthForm';
 import { useSession, isAdultFromBirthYear } from '../utils/useSession';
 import { RoastAgeGateModal } from './RoastAgeGateModal';
 import { supabase } from '../utils/supabaseClient';
-import { roastForMove, RoastContext } from '../utils/roastContext';
-import { speakCoachMessage, dispatchSubtitle, getCoachVolume, setCoachVolume, stopCoachAudio, prepareCoachVoice } from '../utils/soundEffects';
+import { speakFollowUpMessage, dispatchSubtitle, getCoachVolume, setCoachVolume, stopCoachAudio } from '../utils/soundEffects';
 import { PaymentOverlay } from './PaymentOverlay';
 import { TrialTimer } from './TrialTimer';
 import { ProfileDropdown } from './ProfileDropdown';
@@ -31,8 +30,6 @@ import {
   speakGameLost,
   speakGameDraw,
   speakDynamicRefutation,
-  speakRoastMoveCategory,
-  speakRoastPreMoveWarning,
   speakRoastUndo,
   speakRoastGameOver,
   speakRoastSlowPlay,
@@ -141,7 +138,6 @@ function App() {
   const [currentRoastWarning, setCurrentRoastWarning] = useState<string>('');
 
   const [showRoastGate, setShowRoastGate] = useState(false);
-  const moveRoastContext = useRef<RoastContext | null>(null);
   const coachMenuRef = useRef<HTMLDivElement>(null);
   const previousFenRef = useRef(START_FEN);
   const gameGenerationRef = useRef(0);
@@ -214,7 +210,6 @@ function App() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     setCoachVolumeState(getCoachVolume());
-    const prepareTimer = window.setTimeout(() => prepareCoachVoice(), 500);
     const savedMode = window.localStorage.getItem('coach-mode') as CoachMode | null;
     const savedPreference = window.localStorage.getItem('coach-voice-enabled');
     if (savedMode === 'off' || savedPreference === 'false') {
@@ -227,9 +222,6 @@ function App() {
       setCoachVoiceEnabled(true);
       setLearnerMode(true);
     }
-    return () => {
-      window.clearTimeout(prepareTimer);
-    };
   }, []);
 
   useEffect(() => {
@@ -650,12 +642,6 @@ function App() {
         const preRes = await api.precheckMove(gameId!, moveUci);
         if (operationGeneration !== gameGenerationRef.current) return;
 
-        moveRoastContext.current = {
-          fen, move: moveUci, label: preRes.label,
-          cpLoss: preRes.cp_loss ?? undefined, bestMove: preRes.best_move_uci,
-          reply: preRes.threat_preview?.opponent_best_reply,
-          recentMoves: history.map(item => item.san),
-        };
         const label = preRes.label || 'Move';
         const labelMap: Record<string, string> = {
           Brilliant: 'Brilliant',
@@ -688,17 +674,13 @@ function App() {
         );
 
         if (shouldInterrupt) {
-          if (roastEnabledRef.current) {
-            const roastText = speakRoastPreMoveWarning(coachVoiceEnabled);
-            setCurrentRoastWarning(roastText);
-          } else {
-            speakMoveCategory(
-              preRes.label,
-              coachVoiceEnabled,
-              preRes.coach_explanation?.speech.immediate || coachPromptForClassification(preRes.label),
-              true,
-            );
-          }
+          if (roastEnabledRef.current) setCurrentRoastWarning('Hold it, genius. That move deserves another look.');
+          speakMoveCategory(
+            preRes.label,
+            coachVoiceEnabled,
+            preRes.coach_explanation?.speech.immediate || coachPromptForClassification(preRes.label),
+            true,
+          );
           setBadMoveSquare(move.to);
           setWarningActive(true);
           setOverlayVisible(true);
@@ -714,7 +696,7 @@ function App() {
 
         if (preRes.opening && announcedOpeningRef.current !== preRes.opening.name) {
           announcedOpeningRef.current = preRes.opening.name;
-          speakCoachMessage(`This is the ${preRes.opening.name}.`, undefined, coachVoiceEnabled);
+          speakMoveCategory('Book', coachVoiceEnabled);
           await commitAndFinalize(moveUci, true, preRes.analysis_id);
           return;
         }
@@ -804,15 +786,9 @@ function App() {
       const cleanLabel = labelMap[label] || label;
       setClassification(cleanLabel);
       if (!skipVoice) {
-        if (roastEnabledRef.current) {
-          const context = moveRoastContext.current;
-          if (context?.move === moveUci) speakCoachMessage(roastForMove({ ...context, label: cleanLabel }), undefined, coachVoiceEnabled);
-          else speakRoastMoveCategory(cleanLabel, undefined, false, coachVoiceEnabled);
-        } else {
-          if (cleanLabel !== 'Book' || !hasSpokenBookMoveRef.current) {
-            speakMoveCategory(cleanLabel, coachVoiceEnabled);
-            if (cleanLabel === 'Book') hasSpokenBookMoveRef.current = true;
-          }
+        if (cleanLabel !== 'Book' || !hasSpokenBookMoveRef.current) {
+          speakMoveCategory(cleanLabel, coachVoiceEnabled);
+          if (cleanLabel === 'Book') hasSpokenBookMoveRef.current = true;
         }
       }
 
@@ -966,7 +942,7 @@ function App() {
         setRefutationSequence(sequence);
         setThreat(detailed.threat_preview);
         setCoachExplanation(detailed.coach_explanation);
-        speakCoachMessage(detailed.coach_explanation.speech.follow_up, undefined, coachVoiceEnabled, true);
+        speakFollowUpMessage(detailed.coach_explanation.speech.follow_up, undefined, coachVoiceEnabled, true);
       } catch (error) {
         if (isCurrent()) handleError(error);
         return;

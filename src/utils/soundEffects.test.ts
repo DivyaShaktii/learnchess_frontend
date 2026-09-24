@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { CLASSIFICATION_PROMPTS, classificationClipFor, coachPromptForClassification, speakMoveCategory } from './coachVoice';
-import { speakCoachMessage, stopCoachAudio } from './soundEffects';
+import { speakFollowUpMessage, stopCoachAudio } from './soundEffects';
 
 class MockUtterance {
   text: string;
@@ -77,9 +77,9 @@ describe('browser synthetic coach voice', () => {
     expect(coachPromptForClassification('Good')).toBe(CLASSIFICATION_PROMPTS.Good[5]);
   });
 
-  it('speaks through SpeechSynthesis instead of requesting Kokoro audio', async () => {
+  it('uses synthetic speech for a requested follow-up message', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch');
-    speakCoachMessage('Synthetic coach test.');
+    speakFollowUpMessage('Synthetic coach test.');
     await vi.waitFor(() => expect(speak).toHaveBeenCalledOnce());
     expect(speak.mock.calls[0][0].text).toBe('Synthetic coach test.');
     expect(fetchSpy).not.toHaveBeenCalled();
@@ -102,18 +102,16 @@ describe('browser synthetic coach voice', () => {
     });
   });
 
-  it('uses synthetic speech for position-specific text', async () => {
+  it('does not synthesize unmatched automatic classification text', () => {
     speakMoveCategory('Mistake', true, 'Their rook can capture your queen next.');
-    await vi.waitFor(() => expect(speak).toHaveBeenCalledOnce());
-    expect(speak.mock.calls[0][0].text).toBe('Their rook can capture your queen next.');
+    expect(speak).not.toHaveBeenCalled();
     expect(audioInstances).toHaveLength(0);
-    speak.mock.calls[0][0].onend?.();
   });
 
   it('cancels current speech for priority warnings', async () => {
-    speakCoachMessage('First message.');
+    speakFollowUpMessage('First message.');
     await vi.waitFor(() => expect(speak).toHaveBeenCalledOnce());
-    speakCoachMessage('Priority warning.', undefined, true, true);
+    speakFollowUpMessage('Priority warning.', undefined, true, true);
     await vi.waitFor(() => expect(cancel).toHaveBeenCalled());
     await vi.waitFor(() => expect(speak).toHaveBeenCalledTimes(2));
     expect(speak.mock.calls[1][0].text).toBe('Priority warning.');
