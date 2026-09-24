@@ -35,7 +35,8 @@ import {
   speakRoastPreMoveWarning,
   speakRoastUndo,
   speakRoastGameOver,
-  speakRoastSlowPlay
+  speakRoastSlowPlay,
+  coachPromptForClassification,
 } from '../utils/coachVoice';
 
 export interface ToastProps {
@@ -692,7 +693,7 @@ function App() {
             setCurrentRoastWarning(roastText);
           } else {
             speakCoachMessage(
-              preRes.coach_explanation?.speech.immediate || `${preRes.label}.`,
+              preRes.coach_explanation?.speech.immediate || coachPromptForClassification(preRes.label),
               undefined, coachVoiceEnabled, true,
             );
           }

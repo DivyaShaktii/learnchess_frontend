@@ -13,17 +13,21 @@ const CATEGORY_MESSAGES: Record<string, string> = {
   'Great Move': 'Great move.',
   'Only Move': 'Only move.',
   Good: 'Good move.',
-  Inaccuracy: 'That is a slight inaccuracy.',
-  Mistake: 'Hold on, that is a mistake. Take a moment to find a better move.',
+  Inaccuracy: 'Hold on. Think about other moves. There may be a better option.',
+  Mistake: 'This is a mistake. Take your time and think about this position.',
   Blunder: 'That is a blunder.',
   'Worst Move': 'That is a serious blunder.',
   Worst: 'That is a serious blunder.',
 };
 
+export function coachPromptForClassification(label: string): string {
+  return CATEGORY_MESSAGES[label] || `${label} move.`;
+}
+
 export function speakMoveCategory(label: string, playAudio: boolean = true, fallbackText?: string, priority = false): void {
   if (typeof window === 'undefined') return;
 
-  const text = fallbackText || CATEGORY_MESSAGES[label] || `${label} move.`;
+  const text = fallbackText || coachPromptForClassification(label);
   speakCoachMessage(text, undefined, playAudio, priority);
 }
 

@@ -1,7 +1,4 @@
-import { STATIC_KOKORO_AUDIO } from '../data/kokoroAudioManifest';
-
-// Web Audio API synthesizer and a single, queued coach-audio controller.
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
+// Web Audio move effects and a queued browser-synthetic coach voice.
 
 class ChessSoundEngine {
   private ctx: AudioContext | null = null;
@@ -81,72 +78,9 @@ export function dispatchSubtitle(text: string) {
 type AudioJob = (finish: () => void) => () => void;
 const audioQueue: AudioJob[] = [];
 let activeCleanup: (() => void) | null = null;
-let coachAudioContext: AudioContext | null = null;
-let currentCoachSource: AudioBufferSourceNode | null = null;
-let currentCoachGain: GainNode | null = null;
-let unlockListenersInstalled = false;
+let currentAudio: HTMLAudioElement | null = null;
+let selectedVoice: SpeechSynthesisVoice | null = null;
 let generation = 0;
-
-const KOKORO_PRELOAD_MESSAGES = [
-  'That is a slight inaccuracy.',
-  'Hold on, that is a mistake. Take a moment to find a better move.',
-  'That is a blunder.',
-  'That is a serious blunder.',
-  'Hold it, genius. That move deserves another look.',
-  'Watch out! Here is their plan.',
-];
-const kokoroAudioCache = new Map<string, Blob>();
-const kokoroRequests = new Map<string, Promise<Blob>>();
-
-export function getStaticCoachAudioPath(text: string): string | null {
-  return STATIC_KOKORO_AUDIO[text] || null;
-}
-
-function loadKokoroAudio(text: string): Promise<Blob> {
-  const cached = kokoroAudioCache.get(text);
-  if (cached) return Promise.resolve(cached);
-  const pending = kokoroRequests.get(text);
-  if (pending) return pending;
-
-  const staticSource = getStaticCoachAudioPath(text);
-  const request = fetch(staticSource || `${API_BASE}/api/tts`, staticSource ? undefined : {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text, voice: 'af_bella', speed: 1 }),
-  }).then(async (response) => {
-    if (!response.ok) throw new Error(`TTS returned ${response.status}`);
-    const blob = await response.blob();
-    kokoroAudioCache.set(text, blob);
-    return blob;
-  }).finally(() => kokoroRequests.delete(text));
-  kokoroRequests.set(text, request);
-  return request;
-}
-
-function getCoachAudioContext(): AudioContext | null {
-  if (coachAudioContext || typeof window === 'undefined') return coachAudioContext;
-  const AudioCtx = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-  coachAudioContext = AudioCtx ? new AudioCtx() : null;
-  return coachAudioContext;
-}
-
-function installCoachAudioUnlock() {
-  if (unlockListenersInstalled || typeof window === 'undefined') return;
-  unlockListenersInstalled = true;
-  const unlock = () => {
-    const context = getCoachAudioContext();
-    if (!context || context.state === 'running') {
-      window.removeEventListener('pointerdown', unlock, true);
-      window.removeEventListener('keydown', unlock, true);
-      return;
-    }
-    void context.resume().then(() => {
-      window.removeEventListener('pointerdown', unlock, true);
-      window.removeEventListener('keydown', unlock, true);
-    }).catch(() => { /* Keep listeners so the next gesture can retry. */ });
-  };
-  window.addEventListener('pointerdown', unlock, true);
-  window.addEventListener('keydown', unlock, true);
-}
 
 const storedVolume = () => {
   if (typeof window === 'undefined') return 0.8;
@@ -158,9 +92,7 @@ export function setCoachVolume(value: number) {
   if (typeof window === 'undefined') return;
   const volume = Math.max(0.1, Math.min(1, value));
   window.localStorage.setItem('coach-volume', String(volume));
-  if (currentCoachGain && coachAudioContext) {
-    currentCoachGain.gain.setValueAtTime(volume, coachAudioContext.currentTime);
-  }
+  if (currentAudio) currentAudio.volume = volume;
 }
 function reportAudioError() {
   if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('coach-audio-error', {
@@ -178,8 +110,7 @@ function runNextJob() {
     finished = true;
     if (jobGeneration !== generation) return;
     activeCleanup = null;
-    currentCoachSource = null;
-    currentCoachGain = null;
+    currentAudio = null;
     runNextJob();
   };
   activeCleanup = job(finish);
@@ -193,102 +124,132 @@ export function stopCoachAudio(clearSubtitle = true) {
   audioQueue.length = 0;
   activeCleanup?.();
   activeCleanup = null;
-  if (currentCoachSource) {
-    currentCoachSource.onended = null;
-    try { currentCoachSource.stop(); } catch {}
-    currentCoachSource.disconnect();
+  if (currentAudio) {
+    currentAudio.pause();
+    currentAudio.currentTime = 0;
   }
-  currentCoachSource = null;
-  currentCoachGain?.disconnect();
-  currentCoachGain = null;
+  currentAudio = null;
   if (typeof window !== 'undefined') window.speechSynthesis?.cancel();
   if (clearSubtitle) dispatchSubtitle('');
 }
 
+async function resolveVoice() {
+  if (selectedVoice || typeof window === 'undefined' || !window.speechSynthesis) return selectedVoice;
+  let voices = window.speechSynthesis.getVoices();
+  if (voices.length === 0) {
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, 750);
+      window.speechSynthesis.addEventListener('voiceschanged', () => {
+        clearTimeout(timer);
+        resolve();
+      }, { once: true });
+    });
+    voices = window.speechSynthesis.getVoices();
+  }
+  selectedVoice = voices.find((voice) => /en/i.test(voice.lang) && /natural|samantha|google us english/i.test(voice.name))
+    || voices.find((voice) => /en/i.test(voice.lang))
+    || voices[0]
+    || null;
+  return selectedVoice;
+}
+
 export function prepareCoachVoice() {
-  if (typeof window === 'undefined') return;
-  installCoachAudioUnlock();
-  getCoachAudioContext();
-  for (const message of KOKORO_PRELOAD_MESSAGES) {
-    void loadKokoroAudio(message).catch(() => { /* A later playback can retry. */ });
-  }
-  for (const message of Object.keys(STATIC_KOKORO_AUDIO)) {
-    void loadKokoroAudio(message).catch(() => { /* A later playback can retry. */ });
-  }
+  if (typeof window !== 'undefined' && 'speechSynthesis' in window) void resolveVoice();
 }
 
 export function speakCoachMessage(text: string, onEnd?: () => void, playAudio = true, priority = false) {
   if (typeof window === 'undefined' || !text) return;
   if (!playAudio) { dispatchSubtitle(text); clearSubtitleAfter(5000); onEnd?.(); return; }
+  if (!('speechSynthesis' in window)) {
+    dispatchSubtitle(text);
+    reportAudioError();
+    clearSubtitleAfter(7000);
+    onEnd?.();
+    return;
+  }
   if (priority) stopCoachAudio(false);
   enqueueAudio((finish) => {
     dispatchSubtitle(text);
     let cancelled = false;
     let concluded = false;
-    let source: AudioBufferSourceNode | null = null;
-    let gain: GainNode | null = null;
-    let requestTimer: ReturnType<typeof setTimeout> | null = null;
-
-    const releaseGeneratedAudio = () => {
-      if (source) {
-        source.onended = null;
-        try { source.stop(); } catch {}
-        source.disconnect();
-      }
-      gain?.disconnect();
-      source = null;
-      gain = null;
-      currentCoachSource = null;
-      currentCoachGain = null;
-    };
+    let safetyTimer: ReturnType<typeof setTimeout> | null = null;
     const conclude = (failed: boolean) => {
       if (concluded || cancelled) return;
       concluded = true;
-      if (requestTimer) clearTimeout(requestTimer);
-      releaseGeneratedAudio();
+      if (safetyTimer) clearTimeout(safetyTimer);
       if (failed) reportAudioError();
       clearSubtitleAfter(failed ? 7000 : 2000);
       onEnd?.();
       finish();
     };
 
-    requestTimer = setTimeout(() => conclude(true), 12000);
-    void loadKokoroAudio(text).then(async (blob) => {
-      if (cancelled || concluded) return;
-      const context = getCoachAudioContext();
-      if (!context) throw new Error('Web Audio is unavailable');
-      if (context.state === 'suspended') await context.resume();
-      if (cancelled || concluded || context.state !== 'running') {
-        throw new Error('Coach audio is locked');
+    void resolveVoice().then((voice) => {
+      if (cancelled) return;
+      try {
+        const utterance = new SpeechSynthesisUtterance(text);
+        if (voice) utterance.voice = voice;
+        utterance.rate = 1;
+        utterance.pitch = 1;
+        utterance.volume = storedVolume();
+        utterance.onend = () => conclude(false);
+        utterance.onerror = (event) => {
+          if (event.error === 'interrupted' || event.error === 'canceled') conclude(false);
+          else conclude(true);
+        };
+        safetyTimer = setTimeout(() => {
+          if (!cancelled) {
+            window.speechSynthesis.cancel();
+            conclude(true);
+          }
+        }, Math.max(10000, text.length * 180));
+        window.speechSynthesis.speak(utterance);
+      } catch {
+        conclude(true);
       }
-      const buffer = await context.decodeAudioData(await blob.arrayBuffer());
-      if (cancelled || concluded) return;
-      source = context.createBufferSource();
-      gain = context.createGain();
-      source.buffer = buffer;
-      gain.gain.value = storedVolume();
-      source.connect(gain);
-      gain.connect(context.destination);
-      currentCoachSource = source;
-      currentCoachGain = gain;
-      source.onended = () => conclude(false);
-      source.start();
-    }).catch(() => {
-      if (!cancelled && !concluded) conclude(true);
-    });
+    }).catch(() => conclude(true));
 
     return () => {
       cancelled = true;
-      if (requestTimer) clearTimeout(requestTimer);
-      releaseGeneratedAudio();
+      if (safetyTimer) clearTimeout(safetyTimer);
+      window.speechSynthesis.cancel();
     };
   });
 }
 
-export function playCoachClip(_src: string, subtitle: string, playAudio = true) {
-  // Keep the legacy API, but route it through the same Kokoro service as all
-  // other coach speech so normal/professional modes cannot bypass Kokoro.
-  speakCoachMessage(subtitle, undefined, playAudio);
+export function playCoachClip(src: string, subtitle: string, playAudio = true) {
+  if (typeof window === 'undefined') return;
+  if (!playAudio) { dispatchSubtitle(subtitle); clearSubtitleAfter(5000); return; }
+  enqueueAudio((finish) => {
+    dispatchSubtitle(subtitle);
+    const audio = new Audio(src);
+    currentAudio = audio;
+    audio.preload = 'auto';
+    audio.volume = storedVolume();
+    let safetyTimer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
+      reportAudioError();
+      clearSubtitleAfter(7000);
+      audio.pause();
+      finish();
+    }, 20000);
+    let concluded = false;
+    const conclude = (failed: boolean) => {
+      if (concluded) return;
+      concluded = true;
+      if (safetyTimer) clearTimeout(safetyTimer);
+      safetyTimer = null;
+      if (failed) reportAudioError();
+      clearSubtitleAfter(failed ? 7000 : 2000);
+      finish();
+    };
+    audio.onended = () => conclude(false);
+    audio.onerror = () => conclude(true);
+    audio.play().catch(() => conclude(true));
+    return () => {
+      if (safetyTimer) clearTimeout(safetyTimer);
+      audio.pause();
+      audio.currentTime = 0;
+    };
+  });
 }
 
 const preloadedAudio = new Map<string, HTMLAudioElement>();
